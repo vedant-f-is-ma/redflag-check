@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>East Bay Red Flag Check — does the warning apply to me?</title>
+<meta name="description" content="Type your East Bay address. Find out if the active Red Flag Warning actually covers you, what to do tonight, and your evacuation zone. Free. No signup.">
+<meta name="theme-color" content="#1a1a1a">
+<meta property="og:title" content="East Bay Red Flag Check">
+<meta property="og:description" content="Type your address. Find out if tonight's Red Flag Warning applies to you. Free, no signup.">
+<meta property="og:type" content="website">
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --bg-card: #242424;
+    --bg-input: #2e2e2e;
+    --text: #f0f0f0;
+    --text-dim: #b0b0b0;
+    --accent: #ff6b3d;
+    --accent-soft: rgba(255, 107, 61, 0.15);
+    --danger: #ff4444;
+    --safe: #4ade80;
+    --border: #333;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 1.5rem 1rem 4rem;
+  }
+  header { margin-bottom: 1.5rem; }
+  header h1 {
+    margin: 0 0 .25rem;
+    font-size: 1.65rem;
+    line-height: 1.15;
+    font-weight: 700;
+  }
+  header h1 .flag { color: var(--accent); }
+  header .sub {
+    color: var(--text-dim);
+    font-size: .92rem;
+  }
+  header .meta {
+    color: var(--text-dim);
+    font-size: .78rem;
+    margin-top: .35rem;
+  }
+  .tabs {
+    display: flex;
+    gap: .25rem;
+    background: var(--bg-card);
+    padding: .25rem;
+    border-radius: 10px;
+    margin-bottom: 1.25rem;
+  }
+  .tab {
+    flex: 1;
+    padding: .65rem .5rem;
+    background: transparent;
+    color: var(--text-dim);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 600;
+    font-family: inherit;
+  }
+  .tab.active {
+    background: var(--bg-input);
+    color: var(--text);
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1.1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+  }
+  label {
+    display: block;
+    font-size: .85rem;
+    color: var(--text-dim);
+    margin-bottom: .3rem;
+  }
+  input[type="text"], select {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .7rem .85rem;
+    font-size: 1rem;
+    font-family: inherit;
+  }
+  input:focus, select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button.primary {
+    width: 100%;
+    background: var(--accent);
+    color: #1a0a02;
+    border: none;
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    font-size: 1rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    margin-top: .75rem;
+  }
+  button.primary:disabled { opacity: .5; cursor: progress; }
+  button.secondary {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .65rem 1rem;
+    font-size: .9rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    margin: .25rem .25rem .25rem 0;
+  }
+  .verdict {
+    padding: 1rem 1.2rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+  .verdict.in-zone {
+    background: rgba(255, 68, 68, 0.12);
+    border: 1px solid var(--danger);
+    color: #ffcccc;
+  }
+  .verdict.adjacent {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    color: #ffd1bd;
+  }
+  .verdict.out-of-zone {
+    background: rgba(74, 222, 128, 0.12);
+    border: 1px solid var(--safe);
+    color: #bef0c5;
+  }
+  .verdict h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
+  .verdict p { margin: 0; font-size: .92rem; font-weight: 400; }
+  .checklist h3 {
+    font-size: .95rem;
+    margin: 0 0 .5rem;
+    color: var(--text);
+  }
+  .checklist ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+  }
+  .checklist li {
+    padding: .35rem 0 .35rem 1.4rem;
+    position: relative;
+    font-size: .92rem;
+  }
+  .checklist li.do::before { content: "✓"; color: var(--safe); position: absolute; left: 0; font-weight: 700; }
+  .checklist li.dont::before { content: "✗"; color: var(--danger); position: absolute; left: 0; font-weight: 700; }
+  .small {
+    font-size: .8rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .75rem;
+  }
+  .stat {
+    background: var(--bg-input);
+    padding: .65rem .8rem;
+    border-radius: 8px;
+  }
+  .stat .label {
+    font-size: .7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin: 0;
+  }
+  .stat .value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: .15rem 0 0;
+  }
+  .error {
+    background: rgba(255, 68, 68, 0.12);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    color: #ffcccc;
+    font-size: .9rem;
+  }
+  .loading {
+    display: inline-block;
+    width: 1em; height: 1em;
+    border: 2px solid var(--text-dim);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer {
+    margin-top: 2.5rem;
+    font-size: .76rem;
+    color: var(--text-dim);
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1><span class="flag">🚩</span> East Bay Red Flag Check</h1>
+    <p class="sub">Type your address. Find out if tonight's Red Flag Warning applies to you, what to do, and your evacuation zone.</p>
+    <p class="meta">Free · No signup · Sources: NWS + US Census + Genasys · Not affiliated with Alameda County</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="zone">Your address</button>
+    <button class="tab" data-tab="schools">Schools</button>
+    <button class="tab" data-tab="buddy">Buddy check</button>
+  </div>
+
+  <!-- ============================== ZONE TAB ============================== -->
+  <section class="panel active" id="panel-zone">
+    <div class="card">
+      <label for="address-input">Enter an address in the Bay Area</label>
+      <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off">
+      <button class="primary" id="check-btn">Check this address</button>
+    </div>
+    <div id="zone-result"></div>
+  </section>
+
+  <!-- ============================== SCHOOLS TAB ============================== -->
+  <section class="panel" id="panel-schools">
+    <div class="card">
+      <label for="school-select">Pick a school</label>
+      <select id="school-select">
+        <option value="">— Choose a school —</option>
+      </select>
+      <button class="primary" id="school-btn">Check this school</button>
+    </div>
+    <div id="school-result"></div>
+  </section>
+
+  <!-- ============================== BUDDY TAB ============================== -->
+  <section class="panel" id="panel-buddy">
+    <div class="card">
+      <label for="buddy-name">Friend's name</label>
+      <input type="text" id="buddy-name" placeholder="e.g., Jane">
+      <label for="buddy-address" style="margin-top:.75rem">Friend's address (optional, for zone lookup)</label>
+      <input type="text" id="buddy-address" placeholder="e.g., 12250 Skyline Blvd, Oakland">
+      <button class="primary" id="buddy-btn">Make my buddy check</button>
+    </div>
+    <div id="buddy-result"></div>
+  </section>
+
+  <footer>
+    Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
+    Free public API: <a href="/docs">/docs</a> · Open-source: <a href="https://github.com/vedant-f-is-ma/redflag-check">GitHub</a><br>
+    For official emergency alerts, sign up at <a href="https://www.acgov.org/ready/connect.htm">AC Alert</a>. In case of fire, call 911.
+  </footer>
+</div>
+
+<script type="module">
+const API = ""; // same-origin
+
+// Tab switching
+document.querySelectorAll(".tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ---------- Helpers ----------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+function loadingHtml() {
+  return `<div class="card" style="text-align:center"><span class="loading"></span> Checking…</div>`;
+}
+function errorHtml(msg) {
+  return `<div class="error">${esc(msg)}</div>`;
+}
+
+// ---------- Zone Check ----------
+$("#check-btn").addEventListener("click", async () => {
+  const addr = $("#address-input").value.trim();
+  if (!addr) return;
+  const out = $("#zone-result");
+  out.innerHTML = loadingHtml();
+  $("#check-btn").disabled = true;
+  try {
+    const res = await fetch(`${API}/api/v1/zone-check?address=${encodeURIComponent(addr)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      out.innerHTML = errorHtml(err.error || `Lookup failed (${res.status}).`);
+      return;
+    }
+    const data = await res.json();
+    out.innerHTML = renderZoneResult(data);
+    bindShare(addr, data);
+  } catch (e) {
+    out.innerHTML = errorHtml("Network error. Try again.");
+  } finally {
+    $("#check-btn").disabled = false;
+  }
+});
+
+function renderZoneResult(d) {
+  const cat = d.action_checklist.category;
+  const verdictClass = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
+  const verdictTitle = cat === "in_zone"
+    ? "⚠️ Yes — the Red Flag Warning covers your address."
+    : cat === "adjacent"
+    ? "🚩 You're adjacent to the warning zone."
+    : "✓ The Red Flag Warning does NOT cover your address.";
+
+  let verdictDetail = "";
+  if (d.alerts && d.alerts.length) {
+    const a = d.alerts[0];
+    const start = new Date(a.starts).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const end = new Date(a.ends).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    verdictDetail = `Active from ${start} until ${end}.`;
+  } else {
+    verdictDetail = "No active Red Flag Warning at this point — but the situation can change overnight.";
+  }
+
+  const tonight = d.forecast?.tonight;
+  const stats = tonight
+    ? `<div class="grid">
+        <div class="stat"><p class="label">Max wind tonight</p><p class="value">${Math.round(tonight.max_wind_mph)} mph</p></div>
+        <div class="stat"><p class="label">Min humidity</p><p class="value">${tonight.min_humidity_pct == null ? "—" : Math.round(tonight.min_humidity_pct) + "%"}</p></div>
+      </div>`
+    : "";
+
+  const doList = d.action_checklist.do_now.map(s => `<li class="do">${esc(s)}</li>`).join("");
+  const dontList = d.action_checklist.do_not.map(s => `<li class="dont">${esc(s)}</li>`).join("");
+
+  const matched = d.location.matched_address ? `<p class="small">Matched: ${esc(d.location.matched_address)}</p>` : "";
+
+  const shareText = `East Bay Red Flag Warning tonight — check if it applies to your address: ${location.origin}`;
+  const smsLink = `sms:&body=${encodeURIComponent(shareText)}`;
+
+  return `
+    <div class="verdict ${verdictClass}">
+      <h2>${verdictTitle}</h2>
+      <p>${esc(verdictDetail)}</p>
+    </div>
+    ${matched}
+    ${stats}
+    <div class="card checklist">
+      <h3>What to do tonight</h3>
+      <ul>${doList}</ul>
+      <h3>What NOT to do</h3>
+      <ul>${dontList}</ul>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">Useful links</h3>
+      <a class="secondary" href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Look up your evacuation zone</a>
+      <a class="secondary" href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">Sign up for AC Alert</a>
+      <a class="secondary" href="${d.links.watch_duty}" target="_blank" rel="noopener">Open Watch Duty</a>
+      <a class="secondary" href="${d.links.airnow_fire_map}" target="_blank" rel="noopener">Air quality + fire map</a>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">Share this with your neighbor in the hills</h3>
+      <a class="secondary" href="${smsLink}">Send via iMessage</a>
+      <button class="secondary" id="copy-link">Copy link</button>
+    </div>
+  `;
+}
+
+function bindShare(addr, data) {
+  const copyBtn = document.getElementById("copy-link");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(location.origin);
+      copyBtn.textContent = "Copied ✓";
+    });
+  }
+}
+
+// ---------- Schools ----------
+(async function loadSchools() {
+  try {
+    const r = await fetch(`${API}/api/v1/schools`);
+    const d = await r.json();
+    const sel = $("#school-select");
+    d.schools.forEach(s => {
+      const o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = `${s.name} — ${s.city}`;
+      sel.appendChild(o);
+    });
+  } catch (e) { /* leave dropdown empty */ }
+})();
+
+$("#school-btn").addEventListener("click", async () => {
+  const id = $("#school-select").value;
+  if (!id) return;
+  const out = $("#school-result");
+  out.innerHTML = loadingHtml();
+  try {
+    const r = await fetch(`${API}/api/v1/school-status?id=${encodeURIComponent(id)}`);
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      out.innerHTML = errorHtml(err.error || `Lookup failed (${r.status}).`);
+      return;
+    }
+    out.innerHTML = renderSchoolResult(await r.json());
+  } catch {
+    out.innerHTML = errorHtml("Network error. Try again.");
+  }
+});
+
+function renderSchoolResult(d) {
+  const s = d.school;
+  const lvl = d.decision_recommendation.level;
+  const lvlClass = lvl === "indoors_only" || lvl === "consider_closure" ? "in-zone" : lvl === "modify_outdoor" ? "adjacent" : "out-of-zone";
+  const lvlLabel = ({
+    normal: "✓ Normal operations",
+    modify_outdoor: "⚠️ Modify outdoor practice",
+    indoors_only: "⚠️ Indoors only during warning window",
+    consider_closure: "🚨 Superintendent should review",
+  })[lvl];
+
+  const t = d.forecast;
+  const stats = t
+    ? `<div class="grid">
+        <div class="stat"><p class="label">Max wind tonight</p><p class="value">${Math.round(t.max_wind_mph)} mph</p></div>
+        <div class="stat"><p class="label">Min humidity</p><p class="value">${t.min_humidity_pct == null ? "—" : Math.round(t.min_humidity_pct) + "%"}</p></div>
+      </div>`
+    : "";
+
+  const emailSubject = `Wildfire-day check — ${s.name} (${new Date().toLocaleDateString()})`;
+  const emailBody = `Sharing this single-page status check for ${s.name} during tonight's Red Flag Warning.\n\nRecommendation: ${lvlLabel}.\nRationale: ${d.decision_recommendation.rationale}\nSource: ${d.decision_recommendation.source}.\n\nFull data: ${location.origin}/api/v1/school-status?id=${s.id}\n\nThis is informational only; final decisions rest with district leadership.`;
+  const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+
+  return `
+    <div class="verdict ${lvlClass}">
+      <h2>${lvlLabel}</h2>
+      <p>${esc(d.decision_recommendation.rationale)}</p>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 .3rem">${esc(s.name)}</h3>
+      <p class="small">${esc(s.address)}, ${esc(s.city)} · ${esc(s.district)}</p>
+    </div>
+    ${stats}
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">CIF AQI thresholds (reference)</h3>
+      <p class="small">100–150 → modify outdoor practice<br>150–200 → reschedule, move indoor<br>200+ → cancel outdoor; superintendent reviews</p>
+      <p class="small">Source: California Interscholastic Federation</p>
+    </div>
+    <div class="card">
+      <a class="secondary" href="${mailto}">Email this to your principal/AD</a>
+      <a class="secondary" href="${API}/api/v1/school-status?id=${s.id}" target="_blank" rel="noopener">View raw JSON</a>
+    </div>
+  `;
+}
+
+// ---------- Buddy ----------
+$("#buddy-btn").addEventListener("click", async () => {
+  const name = $("#buddy-name").value.trim() || "your neighbor";
+  const addr = $("#buddy-address").value.trim();
+  const out = $("#buddy-result");
+  out.innerHTML = loadingHtml();
+  try {
+    let url = `${API}/api/v1/buddy-template?name=${encodeURIComponent(name)}`;
+    if (addr) {
+      // First geocode via our zone-check (it returns coords)
+      const zc = await fetch(`${API}/api/v1/zone-check?address=${encodeURIComponent(addr)}`);
+      if (zc.ok) {
+        const zd = await zc.json();
+        if (zd.location?.lat && zd.location?.lng) {
+          url += `&friend_lat=${zd.location.lat}&friend_lng=${zd.location.lng}`;
+        }
+      }
+    }
+    const r = await fetch(url);
+    if (!r.ok) { out.innerHTML = errorHtml(`Lookup failed (${r.status}).`); return; }
+    out.innerHTML = renderBuddyResult(await r.json());
+  } catch {
+    out.innerHTML = errorHtml("Network error. Try again.");
+  }
+});
+
+function renderBuddyResult(d) {
+  const zoneNote = d.friend_zone_status
+    ? (d.friend_zone_status.in_red_flag_zone
+        ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
+        : `<div class="verdict out-of-zone"><h2>✓ Your friend is NOT in the active Red Flag zone.</h2><p>The check-in is still a kind move — fire conditions can shift overnight.</p></div>`)
+    : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
+  return `
+    ${zoneNote}
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">Send the check-in (iMessage)</h3>
+      <p class="small">Sends the text below to your friend. They reply 1 = OK, 2 = call me.</p>
+      <p style="background:var(--bg-input);padding:.6rem .8rem;border-radius:6px;font-size:.9rem;">${esc(d.sms_text)}</p>
+      <a class="secondary" href="${d.sms_link}">Open in iMessage</a>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">Or email</h3>
+      <a class="secondary" href="${d.mailto_link}">Open in mail</a>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 .6rem">Add a reminder to your calendar</h3>
+      <p class="small">Reminds you to check in tonight at 10:30 PM PT.</p>
+      <a class="secondary" href="${d.ics_data_url}" download="${d.ics_filename}">Download .ics</a>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>

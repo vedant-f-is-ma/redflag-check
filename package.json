@@ -1,0 +1,16 @@
+{
+  "name": "redflag-check",
+  "version": "0.1.0",
+  "description": "East Bay Red Flag Warning zone check — address-in, plain-English-out. Public API + web UI.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@vercel/node": "^5.1.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red Flag zone check (embed)</title>
+<style>
+  :root {
+    --bg: transparent;
+    --bg-card: #242424;
+    --bg-input: #2e2e2e;
+    --text: #f0f0f0;
+    --text-dim: #b0b0b0;
+    --accent: #ff6b3d;
+    --danger: #ff4444;
+    --safe: #4ade80;
+    --border: #333;
+  }
+  /* Light theme override via ?theme=light */
+  html[data-theme="light"] {
+    --bg: transparent;
+    --bg-card: #ffffff;
+    --bg-input: #f4f4f5;
+    --text: #1a1a1a;
+    --text-dim: #555;
+    --border: #e4e4e7;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .container { padding: 1rem; max-width: 480px; margin: 0 auto; }
+  .card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    margin-bottom: .75rem;
+  }
+  label { display: block; font-size: .8rem; color: var(--text-dim); margin-bottom: .25rem; }
+  input {
+    width: 100%; background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: .6rem .75rem;
+    font-size: 1rem; font-family: inherit;
+  }
+  button {
+    width: 100%; background: var(--accent); color: #1a0a02;
+    border: none; border-radius: 8px; padding: .7rem 1rem;
+    font-size: .95rem; font-weight: 700; font-family: inherit;
+    cursor: pointer; margin-top: .5rem;
+  }
+  .verdict { padding: .8rem 1rem; border-radius: 10px; margin-bottom: .5rem; font-weight: 600; font-size: .95rem; }
+  .verdict.in-zone { background: rgba(255, 68, 68, 0.12); border: 1px solid var(--danger); color: #ffcccc; }
+  html[data-theme="light"] .verdict.in-zone { color: #8a1a1a; }
+  .verdict.adjacent { background: rgba(255, 107, 61, 0.12); border: 1px solid var(--accent); color: #ffd1bd; }
+  html[data-theme="light"] .verdict.adjacent { color: #8a3500; }
+  .verdict.out-of-zone { background: rgba(74, 222, 128, 0.12); border: 1px solid var(--safe); color: #bef0c5; }
+  html[data-theme="light"] .verdict.out-of-zone { color: #166534; }
+  .small { font-size: .75rem; color: var(--text-dim); margin: .5rem 0 0; }
+  .small a { color: var(--accent); }
+  .stats { display: flex; gap: .5rem; }
+  .stat { flex: 1; background: var(--bg-input); padding: .5rem .65rem; border-radius: 6px; }
+  .stat .l { font-size: .65rem; color: var(--text-dim); text-transform: uppercase; }
+  .stat .v { font-size: 1.05rem; font-weight: 700; }
+  .err { background: rgba(255, 68, 68, 0.12); border: 1px solid var(--danger); border-radius: 6px; padding: .5rem .75rem; color: #ffcccc; font-size: .85rem; }
+  .powered { text-align: center; font-size: .7rem; color: var(--text-dim); margin-top: .5rem; }
+  .powered a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <label for="a">Enter an address (East Bay)</label>
+    <input type="text" id="a" placeholder="e.g., 1980 Allston Way, Berkeley">
+    <button id="b">Check Red Flag status</button>
+  </div>
+  <div id="r"></div>
+  <p class="powered">Powered by <a href="https://redflag-check.vercel.app" target="_blank" rel="noopener">redflag-check.vercel.app</a></p>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+if (params.get("theme") === "light") document.documentElement.setAttribute("data-theme", "light");
+const esc = s => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+document.getElementById("b").addEventListener("click", async () => {
+  const addr = document.getElementById("a").value.trim();
+  if (!addr) return;
+  const out = document.getElementById("r");
+  out.innerHTML = '<div class="card">Checking…</div>';
+  try {
+    const res = await fetch(`/api/v1/zone-check?address=${encodeURIComponent(addr)}`);
+    if (!res.ok) {
+      const e = await res.json().catch(()=>({}));
+      out.innerHTML = `<div class="err">${esc(e.error || "Lookup failed.")}</div>`;
+      return;
+    }
+    const d = await res.json();
+    const cat = d.action_checklist.category;
+    const cls = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
+    const title = cat === "in_zone" ? "⚠️ Yes — warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "✓ Warning does NOT cover your address";
+    let detail = "";
+    if (d.alerts && d.alerts.length) {
+      const a = d.alerts[0];
+      const s = new Date(a.starts).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+      const e = new Date(a.ends).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+      detail = `Active ${s} – ${e}.`;
+    }
+    const t = d.forecast?.tonight;
+    const stats = t ? `<div class="stats">
+      <div class="stat"><div class="l">Max wind</div><div class="v">${Math.round(t.max_wind_mph)} mph</div></div>
+      <div class="stat"><div class="l">Min humidity</div><div class="v">${t.min_humidity_pct == null ? "—" : Math.round(t.min_humidity_pct)+"%"}</div></div>
+    </div>` : "";
+    out.innerHTML = `
+      <div class="verdict ${cls}">${title}<div style="font-weight:400;font-size:.85rem;margin-top:.2rem;">${esc(detail)}</div></div>
+      <div class="card">${stats}<p class="small">Your evacuation zone: <a href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look up on Genasys</a> · Sign up for <a href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">AC Alert</a></p></div>
+      <p class="small">Full tool with action checklist + buddy check + school decision: <a href="https://redflag-check.vercel.app?address=${encodeURIComponent(addr)}" target="_blank" rel="noopener">open redflag-check.vercel.app</a></p>
+    `;
+  } catch {
+    out.innerHTML = `<div class="err">Network error. Try again.</div>`;
+  }
+});
+</script>
+</body>
+</html>
