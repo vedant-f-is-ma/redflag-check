@@ -9,6 +9,8 @@
 <meta property="og:title" content="East Bay Red Flag Check">
 <meta property="og:description" content="Type your address. Find out if tonight's Red Flag Warning applies to you. Free, no signup.">
 <meta property="og:type" content="website">
+<script defer src="/_vercel/insights/script.js"></script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
 <style>
   :root {
     --bg: #1a1a1a;
@@ -295,12 +297,18 @@ document.querySelectorAll(".tab").forEach(btn => {
     document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
+    if (window.va) window.va("event", { name: "tab_switched", data: { tab: btn.dataset.tab } });
   });
 });
 
 // ---------- Helpers ----------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+// Vercel Analytics — track real user actions, not just page views
+function track(event, props) {
+  try { window.va && window.va("event", { name: event, data: props || {} }); } catch (e) {}
+}
 
 function loadingHtml() {
   return `<div class="card" style="text-align:center"><span class="loading"></span> Checking…</div>`;
@@ -321,13 +329,20 @@ $("#check-btn").addEventListener("click", async () => {
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       out.innerHTML = errorHtml(err.error || `Lookup failed (${res.status}).`);
+      track("address_check_failed", { status: res.status });
       return;
     }
     const data = await res.json();
     out.innerHTML = renderZoneResult(data);
     bindShare(addr, data);
+    track("address_checked", {
+      in_zone: data.in_red_flag_zone,
+      category: data.action_checklist?.category,
+      zip: data.location?.zip || "unknown",
+    });
   } catch (e) {
     out.innerHTML = errorHtml("Network error. Try again.");
+    track("address_check_error", {});
   } finally {
     $("#check-btn").disabled = false;
   }
@@ -402,8 +417,16 @@ function bindShare(addr, data) {
     copyBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(location.origin);
       copyBtn.textContent = "Copied ✓";
+      track("share_copy_link", {});
     });
   }
+  // Track when user clicks any of the action links (Genasys, AC Alert, Watch Duty, AirNow, iMessage share)
+  document.querySelectorAll("#zone-result a.secondary").forEach(a => {
+    a.addEventListener("click", () => {
+      const label = (a.textContent || "").trim().slice(0, 40);
+      track("outbound_click", { label, href: a.href.slice(0, 60) });
+    });
+  });
 }
 
 // ---------- Schools ----------
@@ -431,11 +454,20 @@ $("#school-btn").addEventListener("click", async () => {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       out.innerHTML = errorHtml(err.error || `Lookup failed (${r.status}).`);
+      track("school_check_failed", { id, status: r.status });
       return;
     }
-    out.innerHTML = renderSchoolResult(await r.json());
+    const data = await r.json();
+    out.innerHTML = renderSchoolResult(data);
+    track("school_checked", {
+      id,
+      district: data.school?.district,
+      in_zone: data.in_red_flag_zone,
+      decision_level: data.decision_recommendation?.level,
+    });
   } catch {
     out.innerHTML = errorHtml("Network error. Try again.");
+    track("school_check_error", { id });
   }
 });
 
@@ -503,10 +535,20 @@ $("#buddy-btn").addEventListener("click", async () => {
       }
     }
     const r = await fetch(url);
-    if (!r.ok) { out.innerHTML = errorHtml(`Lookup failed (${r.status}).`); return; }
-    out.innerHTML = renderBuddyResult(await r.json());
+    if (!r.ok) {
+      out.innerHTML = errorHtml(`Lookup failed (${r.status}).`);
+      track("buddy_check_failed", { status: r.status });
+      return;
+    }
+    const data = await r.json();
+    out.innerHTML = renderBuddyResult(data);
+    track("buddy_created", {
+      had_address: !!addr,
+      friend_in_zone: data.friend_zone_status?.in_red_flag_zone ?? null,
+    });
   } catch {
     out.innerHTML = errorHtml("Network error. Try again.");
+    track("buddy_check_error", {});
   }
 });
 
