@@ -9,7 +9,7 @@ async function probe(url: string): Promise<{ ok: boolean; status: number; ms: nu
   try {
     const res = await fetch(url, {
       method: "HEAD",
-      headers: { "User-Agent": "redflag-check.vercel.app (vedant28t@gmail.com)" },
+      headers: { "User-Agent": "redflag-check.info (vedant28t@gmail.com)" },
     });
     return { ok: res.ok, status: res.status, ms: Date.now() - t0 };
   } catch {

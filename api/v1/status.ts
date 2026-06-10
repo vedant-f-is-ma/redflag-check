@@ -7,7 +7,7 @@ import { jsonResponse } from "../_lib";
 
 export const config = { runtime: "edge" };
 
-const USER_AGENT = "redflag-check.vercel.app (vedant28t@gmail.com)";
+const USER_AGENT = "redflag-check.info (vedant28t@gmail.com)";
 
 export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);

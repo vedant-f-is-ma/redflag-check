@@ -112,7 +112,7 @@
 </div>
 
 <h2>Base URL</h2>
-<pre><code>https://redflag-check.vercel.app/api/v1</code></pre>
+<pre><code>https://redflag-check.info/api/v1</code></pre>
 <p class="small">All endpoints return JSON. No API key required. Open CORS (<code>Access-Control-Allow-Origin: *</code>). Cached for 60 seconds at the Vercel edge.</p>
 
 <h2>Endpoints</h2>
@@ -131,7 +131,7 @@
 </table>
 
 <h3>Example</h3>
-<pre><code>curl 'https://redflag-check.vercel.app/api/v1/zone-check?address=12250+Skyline+Blvd,+Oakland,+CA'</code></pre>
+<pre><code>curl 'https://redflag-check.info/api/v1/zone-check?address=12250+Skyline+Blvd,+Oakland,+CA'</code></pre>
 
 <h3>Response (abbreviated)</h3>
 <pre><code>{
@@ -176,14 +176,14 @@
 <tr><td><code>area</code></td><td>No</td><td><code>CA</code></td><td>Two-letter US state code (e.g., <code>CA</code>, <code>NV</code>, <code>OR</code>).</td></tr>
 </table>
 <h3>Example</h3>
-<pre><code>curl 'https://redflag-check.vercel.app/api/v1/status'</code></pre>
+<pre><code>curl 'https://redflag-check.info/api/v1/status'</code></pre>
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/schools</span>
   <p class="desc">List of supported East Bay schools with id, name, district, address, and pre-resolved lat/lng. Use these <code>id</code> values with <code>/school-status</code>.</p>
 </div>
 <h3>Example</h3>
-<pre><code>curl 'https://redflag-check.vercel.app/api/v1/schools'</code></pre>
+<pre><code>curl 'https://redflag-check.info/api/v1/schools'</code></pre>
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/school-status</span>
@@ -195,7 +195,7 @@
 <tr><td><code>id</code></td><td>Yes</td><td>School id from <code>/api/v1/schools</code>.</td></tr>
 </table>
 <h3>Example</h3>
-<pre><code>curl 'https://redflag-check.vercel.app/api/v1/school-status?id=skyline-oakland'</code></pre>
+<pre><code>curl 'https://redflag-check.info/api/v1/school-status?id=skyline-oakland'</code></pre>
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/buddy-template</span>
@@ -210,7 +210,7 @@
 <tr><td><code>friend_lng</code></td><td>No</td><td>—</td><td>Friend's longitude.</td></tr>
 </table>
 <h3>Example</h3>
-<pre><code>curl 'https://redflag-check.vercel.app/api/v1/buddy-template?name=Jane&friend_lat=37.7811&friend_lng=-122.1556'</code></pre>
+<pre><code>curl 'https://redflag-check.info/api/v1/buddy-template?name=Jane&friend_lat=37.7811&friend_lng=-122.1556'</code></pre>
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/health</span>
@@ -219,7 +219,7 @@
 
 <h2>Embed widget</h2>
 <p>Drop this iframe into any web page — works on county sites, school district pages, news articles, anywhere:</p>
-<pre><code>&lt;iframe src="https://redflag-check.vercel.app/embed/zone-check"
+<pre><code>&lt;iframe src="https://redflag-check.info/embed/zone-check"
   width="100%" height="520" frameborder="0"
   style="max-width:480px;border-radius:12px;"&gt;&lt;/iframe&gt;</code></pre>
 <p class="small">Sets <code>X-Frame-Options: ALLOWALL</code> + permissive CSP so it embeds anywhere.</p>
