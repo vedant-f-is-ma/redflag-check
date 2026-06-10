@@ -116,7 +116,15 @@
 <p class="small">All endpoints return JSON. No API key required. Open CORS (<code>Access-Control-Allow-Origin: *</code>). Cached for 60 seconds at the Vercel edge.</p>
 
 <div class="callout">
-<strong>OpenAPI 3.1 spec:</strong> <a href="/openapi.yaml">/openapi.yaml</a> &mdash; drop into Postman, Insomnia, Stoplight, Swagger UI, or any code-generator. Full schemas, examples, and parameter docs for every endpoint.
+<strong>OpenAPI 3.1 spec:</strong> <a href="/openapi.yaml"><code>https://redflag-check.info/openapi.yaml</code></a>
+<p style="margin:.5rem 0 .3rem;font-size:.88rem;">Open it interactively (no signup, no install):</p>
+<ul style="margin:0 0 .3rem 1.1rem;font-size:.88rem;line-height:1.7;">
+  <li><a href="https://editor.swagger.io/?url=https%3A%2F%2Fredflag-check.info%2Fopenapi.yaml" target="_blank" rel="noopener">Open in Swagger Editor</a> &mdash; try every endpoint live in the browser</li>
+  <li><a href="https://redocly.github.io/redoc/?url=https%3A%2F%2Fredflag-check.info%2Fopenapi.yaml" target="_blank" rel="noopener">Browse with Redoc</a> &mdash; clean reference docs</li>
+  <li><a href="https://app.getpostman.com/run-collection/import?url=https%3A%2F%2Fredflag-check.info%2Fopenapi.yaml" target="_blank" rel="noopener">Import to Postman</a></li>
+  <li>Generate a client in any language with <code>openapi-generator-cli generate -i https://redflag-check.info/openapi.yaml -g &lt;your-language&gt;</code></li>
+</ul>
+<p style="margin:.3rem 0 0;font-size:.85rem;color:var(--text-dim);">6 endpoints &middot; 18 schemas &middot; full parameter docs and response examples included.</p>
 </div>
 
 <h2>Endpoints</h2>
