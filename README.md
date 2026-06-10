@@ -1,6 +1,6 @@
 # redflag-check
 
-**East Bay Red Flag Warning zone check** — address-in, plain-English-out.
+**East Bay Red Flag Warning zone check**, address-in, plain-English-out.
 
 A free, no-signup web tool + public REST API. Built in 48 hours during the 6/10–11 2026 Alameda County Red Flag Warning by a Fremont high schooler.
 
@@ -17,34 +17,34 @@ This tool closes that gap. Type your address → get a clear yes/no, your evacua
 
 ## What's in this repo
 
-- `public/index.html` — three-tab web UI: zone check, schools, buddy
-- `public/docs.html` — public API documentation
-- `public/embed-zone-check.html` — iframe-able widget for any external site
-- `api/v1/zone-check.ts` — primary endpoint, address or coords → verdict + checklist
-- `api/v1/status.ts` — current active Red Flag Warnings in any state
-- `api/v1/schools.ts` — list of supported East Bay schools
-- `api/v1/school-status.ts` — per-school decision view (CIF AQI + wind + RFW)
-- `api/v1/buddy-template.ts` — sms / mailto / .ics for buddy-check messages
-- `api/v1/health.ts` — service + upstream health probe
-- `api/_lib.ts` — Census geocoder, NWS fetchers, action checklist builder
-- `api/_schools.ts` — East Bay school list with pre-resolved coordinates
+- `public/index.html`, three-tab web UI: zone check, schools, buddy
+- `public/docs.html`, public API documentation
+- `public/embed-zone-check.html`, iframe-able widget for any external site
+- `api/v1/zone-check.ts`, primary endpoint, address or coords → verdict + checklist
+- `api/v1/status.ts`, current active Red Flag Warnings in any state
+- `api/v1/schools.ts`, list of supported East Bay schools
+- `api/v1/school-status.ts`, per-school decision view (CIF AQI + wind + RFW)
+- `api/v1/buddy-template.ts`, sms / mailto / .ics for buddy-check messages
+- `api/v1/health.ts`, service + upstream health probe
+- `api/_lib.ts`, Census geocoder, NWS fetchers, action checklist builder
+- `api/_schools.ts`, East Bay school list with pre-resolved coordinates
 
 ## Data sources
 
-- **NWS** `api.weather.gov` — Red Flag Warnings + hourly forecast (public domain)
-- **US Census** `geocoding.geo.census.gov` — address → lat/lng (public domain)
-- **Genasys Protect** — official Alameda County evacuation zones (deeplinks)
-- **AirNow** — air-quality reference
+- **NWS** `api.weather.gov`, Red Flag Warnings + hourly forecast (public domain)
+- **US Census** `geocoding.geo.census.gov`, address → lat/lng (public domain)
+- **Genasys Protect**, official Alameda County evacuation zones (deeplinks)
+- **AirNow**, air-quality reference
 
 ## Integrators
 
 This API is designed to be integrated by:
 
-- **County PIO / OES dashboards** — surface address-level RFW status to constituents
-- **School district websites** — show parents and principals the campus-level status
-- **News widgets** — embed live RFW context in coverage
-- **Mutual-aid apps** — generate buddy-check messages programmatically
-- **Insurance / utilities** — internal dashboards that need normalized RFW data
+- **County PIO / OES dashboards**, surface address-level RFW status to constituents
+- **School district websites**, show parents and principals the campus-level status
+- **News widgets**, embed live RFW context in coverage
+- **Mutual-aid apps**, generate buddy-check messages programmatically
+- **Insurance / utilities**, internal dashboards that need normalized RFW data
 
 No API key needed. Open CORS. 60-second edge caching. See `/docs` for endpoint reference.
 
