@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Page not found — Red Flag Check</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="alternate icon" href="/favicon.ico">
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --bg-card: #242424;
+    --text: #f0f0f0;
+    --text-dim: #b0b0b0;
+    --accent: #ff6b3d;
+    --border: #333;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    line-height: 1.55;
+  }
+  body { display: flex; align-items: center; justify-content: center; }
+  .container { max-width: 480px; padding: 2rem 1.5rem; text-align: center; }
+  .flag { font-size: 3rem; margin-bottom: .5rem; }
+  h1 { margin: 0 0 .5rem; font-size: 1.7rem; }
+  .code { color: var(--accent); font-weight: 700; }
+  p { color: var(--text-dim); margin: 0 0 1.5rem; }
+  a {
+    display: inline-block; background: var(--accent); color: #1a0a02;
+    padding: .7rem 1.4rem; border-radius: 8px;
+    text-decoration: none; font-weight: 700;
+  }
+  ul.links { list-style: none; padding: 0; margin: 1.5rem 0 0; }
+  ul.links li { margin: .35rem 0; font-size: .9rem; }
+  ul.links a {
+    background: transparent; color: var(--accent);
+    padding: 0; font-weight: 400;
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="flag">🚩</div>
+  <h1><span class="code">404</span> Page not found</h1>
+  <p>That page doesn't exist. The Red Flag Warning zone check is still up.</p>
+  <a href="/">Check an address →</a>
+  <ul class="links">
+    <li><a href="/docs">API documentation</a></li>
+    <li><a href="/openapi.yaml">OpenAPI spec</a></li>
+    <li><a href="https://github.com/vedant-f-is-ma/redflag-check">Source on GitHub</a></li>
+  </ul>
+</div>
+</body>
+</html>
