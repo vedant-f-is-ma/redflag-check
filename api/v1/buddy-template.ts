@@ -88,7 +88,7 @@ export default async function handler(req: Request): Promise<Response> {
   const mailtoLink = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   const ics = buildIcs({
-    uid: `buddy-${Date.now()}@redflag-check.vercel.app`,
+    uid: `buddy-${Date.now()}@redflag-check.info`,
     startUtc,
     endUtc,
     summary: `Text-check ${name} (Red Flag Warning)`,

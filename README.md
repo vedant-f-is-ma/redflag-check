@@ -4,9 +4,9 @@
 
 A free, no-signup web tool + public REST API. Built in 48 hours during the 6/10–11 2026 Alameda County Red Flag Warning by a Fremont high schooler.
 
-- **Web UI:** https://redflag-check.vercel.app
-- **Public API:** https://redflag-check.vercel.app/api/v1
-- **API docs:** https://redflag-check.vercel.app/docs
+- **Web UI:** https://redflag-check.info
+- **Public API:** https://redflag-check.info/api/v1
+- **API docs:** https://redflag-check.info/docs
 - **Embed widget:** `/embed/zone-check`
 
 ## Why this exists

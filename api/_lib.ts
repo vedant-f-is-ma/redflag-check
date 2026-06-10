@@ -1,7 +1,7 @@
 // Shared helpers: geocoding (US Census), NWS alert/forecast fetching, response shaping.
 // All functions are pure and side-effect-free except for outbound HTTP.
 
-const USER_AGENT = "redflag-check.vercel.app (vedant28t@gmail.com)";
+const USER_AGENT = "redflag-check.info (vedant28t@gmail.com)";
 
 // ---------------------------------------------------------------------------
 // Geocoding (US Census, free, no auth)

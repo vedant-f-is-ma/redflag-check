@@ -78,7 +78,7 @@
     <button id="b">Check Red Flag status</button>
   </div>
   <div id="r"></div>
-  <p class="powered">Powered by <a href="https://redflag-check.vercel.app" target="_blank" rel="noopener">redflag-check.vercel.app</a></p>
+  <p class="powered">Powered by <a href="https://redflag-check.info" target="_blank" rel="noopener">redflag-check.info</a></p>
 </div>
 <script>
 const params = new URLSearchParams(location.search);
@@ -116,7 +116,7 @@ document.getElementById("b").addEventListener("click", async () => {
     out.innerHTML = `
       <div class="verdict ${cls}">${title}<div style="font-weight:400;font-size:.85rem;margin-top:.2rem;">${esc(detail)}</div></div>
       <div class="card">${stats}<p class="small">Your evacuation zone: <a href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look up on Genasys</a> · Sign up for <a href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">AC Alert</a></p></div>
-      <p class="small">Full tool with action checklist + buddy check + school decision: <a href="https://redflag-check.vercel.app?address=${encodeURIComponent(addr)}" target="_blank" rel="noopener">open redflag-check.vercel.app</a></p>
+      <p class="small">Full tool with action checklist + buddy check + school decision: <a href="https://redflag-check.info?address=${encodeURIComponent(addr)}" target="_blank" rel="noopener">open redflag-check.info</a></p>
     `;
   } catch {
     out.innerHTML = `<div class="err">Network error. Try again.</div>`;
