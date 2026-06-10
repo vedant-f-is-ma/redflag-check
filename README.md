@@ -58,4 +58,4 @@ Informational only. NOT an official emergency service. For official alerts, sign
 
 ## Contact
 
-Vedant Thakker · vedant28t@gmail.com
+Vedant Thakker · `vedant28t [at] gmail [dot] com`
