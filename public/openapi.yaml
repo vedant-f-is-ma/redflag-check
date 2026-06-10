@@ -1,0 +1,527 @@
+openapi: 3.1.0
+
+info:
+  title: redflag-check API
+  summary: Address-based Red Flag Warning lookups, school decisions, and buddy-check templates.
+  description: |
+    Free, public, no-auth REST API wrapping NWS Red Flag Warning data, the US Census geocoder,
+    and Genasys evacuation zones into a single integration-friendly surface.
+
+    **Why this exists:** during a Red Flag Warning, county-wide AC Alert texts often go to
+    everyone in an entire county even though the active NWS warning polygon only covers a small
+    zone. Half the residents are told to prepare a go-bag they don't need; others in the actual
+    zone don't realize how close they are. This API closes that gap by giving any client an
+    address-resolved verdict, plain-English action checklist, and one-tap share template.
+
+    **Designed for:**
+
+    - County PIO and OES dashboards (surface address-level RFW status)
+    - School-district websites (campus-level decisions)
+    - News widgets (live coverage embedding)
+    - Mutual-aid apps (programmatic buddy-check generation)
+    - Insurance and utility internal dashboards
+    - Personal projects, automations, scripts
+
+    **No key required.** Open CORS (`Access-Control-Allow-Origin: *`). Cached at the Vercel edge
+    for 60 seconds. If you sustain over ~1 req/sec, contact the maintainer to plan capacity.
+
+    **Disclaimer:** informational only, not an official emergency service. For official alerts,
+    sign up at AC Alert. In case of fire, call 911.
+  version: 1.0.0
+  contact:
+    name: redflag-check on GitHub
+    url: https://github.com/vedant-f-is-ma/redflag-check
+  license:
+    name: MIT
+    url: https://github.com/vedant-f-is-ma/redflag-check/blob/main/LICENSE
+  x-built-by: Vedant Thakker, Fremont CA, 2026
+
+servers:
+  - url: https://redflag-check.info/api/v1
+    description: Production (custom domain)
+  - url: https://redflag-check.vercel.app/api/v1
+    description: Production (permanent Vercel alias)
+
+tags:
+  - name: zone-check
+    description: Per-address Red Flag Warning verdict, forecast, and action checklist.
+  - name: status
+    description: List of active Red Flag Warnings across a US state.
+  - name: schools
+    description: Per-campus decision view for supported East Bay schools.
+  - name: buddy
+    description: Generated check-in templates (SMS, email, .ics calendar) for neighbor outreach.
+  - name: health
+    description: Service health and upstream API status.
+
+paths:
+  /zone-check:
+    get:
+      tags: [zone-check]
+      operationId: getZoneCheck
+      summary: Check whether a Red Flag Warning currently covers an address or coordinate.
+      description: |
+        Geocodes the address (US Census), pulls active NWS alerts at the point, fetches
+        hourly forecast (wind, RH), builds a category-aware action checklist
+        (`in_zone` / `adjacent` / `out_of_zone`), and returns pre-built Genasys evacuation-zone
+        and AC Alert sign-up links. Either `address` or both `lat` and `lng` must be provided.
+      parameters:
+        - name: address
+          in: query
+          required: false
+          description: Full US address (will be geocoded via US Census).
+          schema:
+            type: string
+          example: "12250 Skyline Blvd, Oakland, CA"
+        - name: lat
+          in: query
+          required: false
+          description: Latitude in decimal degrees (use with `lng` instead of `address`).
+          schema:
+            type: number
+            format: float
+          example: 37.7811
+        - name: lng
+          in: query
+          required: false
+          description: Longitude in decimal degrees.
+          schema:
+            type: number
+            format: float
+          example: -122.1556
+      responses:
+        "200":
+          description: Verdict + alerts + forecast + checklist + links.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZoneCheckResponse"
+        "422":
+          description: Missing or invalid parameters.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "502":
+          description: Upstream API (NWS / Census / Genasys) is degraded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /status:
+    get:
+      tags: [status]
+      operationId: getStatus
+      summary: All active Red Flag Warnings in a US state.
+      description: |
+        Returns every currently active NWS Red Flag Warning for the requested state.
+        Defaults to California. Useful for news widgets, county PIO dashboards, or any
+        system that just wants the raw list of current RFWs.
+      parameters:
+        - name: area
+          in: query
+          required: false
+          description: Two-letter US state code.
+          schema:
+            type: string
+            default: CA
+            pattern: "^[A-Z]{2}$"
+          example: CA
+      responses:
+        "200":
+          description: List of active warnings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusResponse" }
+        "502":
+          description: NWS upstream error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /schools:
+    get:
+      tags: [schools]
+      operationId: listSchools
+      summary: List of supported East Bay schools with pre-resolved coordinates.
+      description: |
+        Returns the catalog of supported schools for use with `/school-status`. Each school
+        includes its `id` (use this with `/school-status?id=...`), name, district, address,
+        and lat/lng. Currently covers East Bay districts; PRs to expand are welcome.
+      responses:
+        "200":
+          description: Catalog of supported schools.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchoolsResponse" }
+
+  /school-status:
+    get:
+      tags: [schools]
+      operationId: getSchoolStatus
+      summary: Per-school decision view (warning status + forecast + recommended action).
+      description: |
+        Returns the zone status at the school's address, tonight's wind and humidity forecast,
+        and a recommended-action level (`normal` / `modify_outdoor` / `indoors_only` /
+        `consider_closure`) with rationale citing CIF AQI thresholds and standard fire-weather
+        practice. Decisions remain with district leadership; this is informational only.
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: School id from `/schools`.
+          schema:
+            type: string
+          example: skyline-oakland
+      responses:
+        "200":
+          description: Per-school decision view.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SchoolStatusResponse" }
+        "404":
+          description: Unknown school id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /buddy-template:
+    get:
+      tags: [buddy]
+      operationId: getBuddyTemplate
+      summary: Generate a check-in template for a neighbor or vulnerable contact.
+      description: |
+        Returns a ready-to-send iMessage text, mailto link, downloadable .ics calendar
+        reminder, and (if `friend_lat`/`friend_lng` are provided) the friend's current
+        Red Flag zone status. Built for mutual-aid networks, community organizers, school
+        PTAs, and anyone who wants to programmatically generate buddy-check messages.
+      parameters:
+        - name: name
+          in: query
+          required: false
+          description: Friend's first name (used to personalize the template).
+          schema:
+            type: string
+            default: "your neighbor"
+          example: Jane
+        - name: time
+          in: query
+          required: false
+          description: ISO 8601 reminder time (defaults to 22:30 PT today).
+          schema:
+            type: string
+            format: date-time
+          example: "2026-06-10T22:30:00-07:00"
+        - name: friend_lat
+          in: query
+          required: false
+          description: Friend's latitude (for zone lookup).
+          schema:
+            type: number
+            format: float
+          example: 37.7811
+        - name: friend_lng
+          in: query
+          required: false
+          description: Friend's longitude.
+          schema:
+            type: number
+            format: float
+          example: -122.1556
+      responses:
+        "200":
+          description: Generated templates and friend zone status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuddyTemplateResponse" }
+        "422":
+          description: Invalid time format.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Service health and upstream API status.
+      description: |
+        Probes NWS, US Census, and Genasys with HEAD requests and reports each upstream's
+        reachability and latency. Useful for integrators to monitor.
+      responses:
+        "200":
+          description: Service + upstream status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+
+components:
+  schemas:
+
+    ZoneCheckResponse:
+      type: object
+      required: [input, location, in_red_flag_zone, alerts, action_checklist, links, sources, disclaimer, generated_at]
+      properties:
+        input:
+          type: object
+          properties:
+            address:   { type: [string, "null"], nullable: true }
+            lat_requested: { type: [number, "null"], nullable: true }
+            lng_requested: { type: [number, "null"], nullable: true }
+        location:    { $ref: "#/components/schemas/Location" }
+        in_red_flag_zone:
+          type: boolean
+          description: True if at least one active NWS Red Flag Warning polygon covers the resolved point.
+        alerts:
+          type: array
+          items: { $ref: "#/components/schemas/Alert" }
+        forecast:
+          oneOf:
+            - { $ref: "#/components/schemas/Forecast" }
+            - type: "null"
+          description: May be null if the NWS gridpoint forecast endpoint errors for the point.
+        action_checklist:
+          $ref: "#/components/schemas/ActionChecklist"
+        links:
+          $ref: "#/components/schemas/Links"
+        sources:
+          type: array
+          items: { type: string }
+          example: ["NWS api.weather.gov", "US Census geocoder", "Genasys Protect"]
+        disclaimer: { type: string }
+        generated_at:
+          type: string
+          format: date-time
+
+    Location:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number, format: float, example: 37.7811 }
+        lng: { type: number, format: float, example: -122.1556 }
+        matched_address:
+          type: string
+          description: Canonical address returned by US Census geocoder.
+          example: "12250 SKYLINE BLVD, OAKLAND, CA, 94619"
+        zip:
+          type: [string, "null"]
+          nullable: true
+          example: "94619"
+
+    Alert:
+      type: object
+      properties:
+        id:           { type: string }
+        event:        { type: string, example: "Red Flag Warning" }
+        headline:     { type: string }
+        description:  { type: string }
+        instruction:  { type: [string, "null"], nullable: true }
+        starts:       { type: string, format: date-time }
+        ends:         { type: string, format: date-time }
+        expires:      { type: string, format: date-time }
+        severity:     { type: string, example: "Severe" }
+        sender_name:  { type: string, example: "NWS San Francisco CA" }
+        affected_areas:
+          type: array
+          items: { type: string }
+        affected_zones:
+          type: array
+          items: { type: string }
+
+    Forecast:
+      type: object
+      properties:
+        tonight:
+          type: object
+          properties:
+            max_wind_mph:    { type: number, example: 45 }
+            min_humidity_pct:
+              type: [number, "null"]
+              nullable: true
+              example: 14
+            summary: { type: string, example: "Windy" }
+        next_24h:
+          type: array
+          items: { $ref: "#/components/schemas/ForecastHour" }
+
+    ForecastHour:
+      type: object
+      properties:
+        time:         { type: string, format: date-time }
+        wind_mph:     { type: number }
+        humidity_pct: { type: [number, "null"], nullable: true }
+        summary:      { type: string }
+
+    ActionChecklist:
+      type: object
+      required: [category, do_now, do_not, if_evacuation_called]
+      properties:
+        category:
+          type: string
+          enum: [in_zone, adjacent, out_of_zone]
+        do_now:
+          type: array
+          items: { type: string }
+        do_not:
+          type: array
+          items: { type: string }
+        if_evacuation_called:
+          type: array
+          items: { type: string }
+
+    Links:
+      type: object
+      properties:
+        genasys_evacuation_zone_lookup:
+          type: string
+          format: uri
+          description: Pre-built Genasys Protect deeplink for the resolved point.
+        official_ac_alert_signup:
+          type: string
+          format: uri
+        watch_duty:
+          type: string
+          format: uri
+        airnow_fire_map:
+          type: string
+          format: uri
+
+    StatusResponse:
+      type: object
+      properties:
+        area:  { type: string, example: "CA" }
+        count: { type: integer, example: 4 }
+        active_red_flag_warnings:
+          type: array
+          items: { $ref: "#/components/schemas/ActiveRedFlagWarning" }
+        source:       { type: string, example: "NWS api.weather.gov" }
+        disclaimer:   { type: string }
+        generated_at: { type: string, format: date-time }
+
+    ActiveRedFlagWarning:
+      type: object
+      properties:
+        id:            { type: string }
+        event:         { type: string, example: "Red Flag Warning" }
+        headline:      { type: string }
+        starts:        { type: string, format: date-time }
+        ends:          { type: string, format: date-time }
+        expires:       { type: string, format: date-time }
+        severity:      { type: string }
+        sender_name:   { type: string }
+        affected_areas:
+          type: array
+          items: { type: string }
+        affected_zones:
+          type: array
+          items: { type: string }
+        instruction:   { type: [string, "null"], nullable: true }
+
+    SchoolsResponse:
+      type: object
+      properties:
+        count:   { type: integer }
+        schools:
+          type: array
+          items: { $ref: "#/components/schemas/School" }
+
+    School:
+      type: object
+      properties:
+        id:       { type: string, example: "skyline-oakland" }
+        name:     { type: string, example: "Skyline High School" }
+        district: { type: string, example: "Oakland Unified" }
+        address:  { type: string, example: "12250 Skyline Blvd" }
+        city:     { type: string, example: "Oakland" }
+        lat:      { type: number, example: 37.7811 }
+        lng:      { type: number, example: -122.1556 }
+
+    SchoolStatusResponse:
+      type: object
+      properties:
+        school:           { $ref: "#/components/schemas/School" }
+        in_red_flag_zone: { type: boolean }
+        alerts:
+          type: array
+          items: { $ref: "#/components/schemas/Alert" }
+        forecast:
+          oneOf:
+            - { $ref: "#/components/schemas/Forecast" }
+            - type: "null"
+        decision_recommendation:
+          $ref: "#/components/schemas/DecisionRecommendation"
+        sources:
+          type: array
+          items: { type: string }
+        generated_at: { type: string, format: date-time }
+
+    DecisionRecommendation:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [normal, modify_outdoor, indoors_only, consider_closure]
+        rationale:
+          type: string
+          description: Plain-English explanation citing CIF AQI thresholds and fire-weather conditions.
+
+    BuddyTemplateResponse:
+      type: object
+      properties:
+        name:                { type: string }
+        reminder_start_iso:  { type: string, format: date-time }
+        reminder_end_iso:    { type: string, format: date-time }
+        sms_text:            { type: string }
+        sms_link:
+          type: string
+          description: "sms: URL pre-filled with body. Opens in default messaging app."
+        email_subject:       { type: string }
+        email_body:          { type: string }
+        mailto_link:         { type: string, description: "mailto: URL with subject and body pre-filled." }
+        ics_content:         { type: string, description: "Raw .ics calendar content (RFC 5545)." }
+        ics_filename:        { type: string }
+        ics_data_url:        { type: string, description: "data: URL of the .ics content for one-click download." }
+        friend_zone_status:
+          oneOf:
+            - { $ref: "#/components/schemas/FriendZoneStatus" }
+            - type: "null"
+          description: Present only if friend_lat and friend_lng were provided.
+        generated_at:        { type: string, format: date-time }
+
+    FriendZoneStatus:
+      type: object
+      properties:
+        in_red_flag_zone: { type: boolean }
+        active_red_flag_warnings:
+          type: array
+          items: { $ref: "#/components/schemas/Alert" }
+        genasys_evacuation_zone_lookup:
+          type: string
+          format: uri
+
+    HealthResponse:
+      type: object
+      properties:
+        service: { type: string, example: "redflag-check" }
+        version: { type: string, example: "v1" }
+        status:  { type: string, enum: [ok, degraded, down] }
+        upstreams:
+          type: object
+          properties:
+            nws:             { $ref: "#/components/schemas/UpstreamStatus" }
+            census_geocoder: { $ref: "#/components/schemas/UpstreamStatus" }
+            genasys_protect: { $ref: "#/components/schemas/UpstreamStatus" }
+        timestamp: { type: string, format: date-time }
+
+    UpstreamStatus:
+      type: object
+      properties:
+        ok:     { type: boolean }
+        status: { type: integer, description: "HTTP status code, 0 on connection failure." }
+        ms:     { type: integer, description: "Round-trip time in milliseconds." }
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:  { type: string, description: "Human-readable error description." }
+        status: { type: integer, description: "Upstream status when relevant." }

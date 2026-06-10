@@ -7,6 +7,7 @@ A free, no-signup web tool + public REST API. Built in 48 hours during the 6/10â
 - **Web UI:** https://redflag-check.info
 - **Public API:** https://redflag-check.info/api/v1
 - **API docs:** https://redflag-check.info/docs
+- **OpenAPI 3.1 spec:** https://redflag-check.info/openapi.yaml
 - **Embed widget:** `/embed/zone-check`
 
 ## Why this exists
