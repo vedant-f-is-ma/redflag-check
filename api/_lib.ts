@@ -201,7 +201,8 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
     return {
       category: "adjacent",
       do_now: [
-        "Be aware: a Red Flag Warning is active in nearby hills tonight.",
+        "Your address is adjacent to the active NWS Red Flag Warning polygon.",
+        "Wind-driven fires do not stop at polygon boundaries. The 1991 Oakland Hills fire, the 2023 Lahaina fire, and the 2025 Palisades fire all pushed past nominal boundaries in wind events. Treat tonight as a fire-weather night.",
         "Keep your phone charged and bring it to bed with sound on.",
         "Sign up for AC Alert if you haven't (link below).",
         "Know your Genasys zone in case conditions change.",
@@ -211,23 +212,24 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
         "Avoid driving through East Bay Hills routes if not essential.",
       ],
       if_evacuation_called: [
-        "Even if you're adjacent, fires move fast in wind. Be ready to leave.",
+        "Wind-driven fires move fast. Be ready to leave even if you're adjacent.",
       ],
     };
   }
   return {
     category: "out_of_zone",
     do_now: [
-      "The Red Flag Warning does NOT cover your address tonight.",
-      "Be aware so you can help neighbors in the hills — text one tonight.",
-      "Still a good night to avoid sparking activities outdoors.",
+      "Your address is outside the active NWS Red Flag Warning polygon.",
+      "Important: this does NOT mean fire-safe. NWS polygons are advisory, not boundaries that stop fire. The 1991 Oakland Hills fire, Lahaina, and the Palisades fire all pushed past nominal boundaries in wind events until they ran out of fuel or hit the ocean. During fire season, keep a go-bag ready regardless of polygon status.",
+      "Tonight is still a fire-weather night across the Bay Area. Avoid sparking activities outdoors.",
+      "Text a neighbor in the hills — they are in the active polygon and pre-positioning matters most in the next few hours.",
       "Sign up for AC Alert in case conditions expand (link below).",
     ],
     do_not: [
-      "Don't ignore the warning even if it doesn't reach your address — fires move.",
+      "Do not assume polygon-outside means safe. A wind-driven fire can reach you even from an active polygon next door.",
     ],
     if_evacuation_called: [
-      "If your area becomes affected, check Genasys Protect for your zone.",
+      "If your area becomes affected, check Genasys Protect for your zone (link below).",
     ],
   };
 }

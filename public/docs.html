@@ -114,6 +114,10 @@
 <strong>What this API gives you that the raw NWS API doesn't:</strong> address-based lookup (geocoded for you), a yes/no Red Flag verdict for that address, tonight's wind/RH forecast at the point, ready-to-display plain-English action checklists differentiated for in-zone / adjacent / out-of-zone, pre-built Genasys evacuation-zone deeplinks, and stable JSON contracts.
 </div>
 
+<div class="callout" style="background: rgba(255, 107, 61, 0.10); border-color: var(--accent);">
+<strong>Important for integrators:</strong> NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons. The <code>out_of_zone</code> category does not mean fire-safe. The action-checklist text returned by the API reflects this and surfaces fire-season-preparedness language even for out-of-zone results. If you display the verdict in your own UI, please retain the framing or surface an equivalent disclaimer. We owe users accuracy more than reassurance.
+</div>
+
 <h2>Base URL</h2>
 <pre><code>https://redflag-check.info/api/v1</code></pre>
 <p class="small">All endpoints return JSON. No API key required. Open CORS (<code>Access-Control-Allow-Origin: *</code>). Cached for 60 seconds at the Vercel edge.</p>
