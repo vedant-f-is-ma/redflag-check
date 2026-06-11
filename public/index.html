@@ -145,6 +145,17 @@
     margin-bottom: 1rem;
     font-weight: 600;
   }
+  .fire-season-banner {
+    background: rgba(255, 107, 61, 0.10);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: .75rem 1rem;
+    margin: 0 0 1rem;
+    font-size: .85rem;
+    line-height: 1.55;
+    color: #fce0d4;
+  }
+  .fire-season-banner strong { color: var(--accent); }
   .verdict.in-zone {
     background: rgba(255, 68, 68, 0.12);
     border: 1px solid var(--danger);
@@ -242,6 +253,10 @@
     <p class="sub">Type your address. Find out if tonight's Red Flag Warning applies to you, what to do, and your evacuation zone.</p>
     <p class="meta">Free · No signup · Sources: NWS + US Census + Genasys · Not affiliated with Alameda County</p>
   </header>
+
+  <div class="fire-season-banner" role="note">
+    <strong>Important during fire season:</strong> NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status. Keep a go-bag ready.
+  </div>
 
   <div class="tabs">
     <button class="tab active" data-tab="zone">Your address</button>
@@ -358,7 +373,7 @@ function renderZoneResult(d) {
     ? "⚠️ Yes — the Red Flag Warning covers your address."
     : cat === "adjacent"
     ? "🚩 You're adjacent to the warning zone."
-    : "✓ The Red Flag Warning does NOT cover your address.";
+    : "Your address is outside the active warning polygon.";
 
   let verdictDetail = "";
   if (d.alerts && d.alerts.length) {
@@ -559,7 +574,7 @@ function renderBuddyResult(d) {
   const zoneNote = d.friend_zone_status
     ? (d.friend_zone_status.in_red_flag_zone
         ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
-        : `<div class="verdict out-of-zone"><h2>✓ Your friend is NOT in the active Red Flag zone.</h2><p>The check-in is still a kind move — fire conditions can shift overnight.</p></div>`)
+        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active warning polygon.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect polygon boundaries (1991 Oakland Hills, Lahaina, Palisades) — fire-season preparedness matters regardless.</p></div>`)
     : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
   return `
     ${zoneNote}

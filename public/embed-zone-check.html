@@ -102,7 +102,7 @@ document.getElementById("b").addEventListener("click", async () => {
     const d = await res.json();
     const cat = d.action_checklist.category;
     const cls = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
-    const title = cat === "in_zone" ? "⚠️ Yes — warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "✓ Warning does NOT cover your address";
+    const title = cat === "in_zone" ? "⚠️ Yes — warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "Outside the active warning polygon";
     let detail = "";
     if (d.alerts && d.alerts.length) {
       const a = d.alerts[0];
@@ -118,6 +118,7 @@ document.getElementById("b").addEventListener("click", async () => {
     out.innerHTML = `
       <div class="verdict ${cls}">${title}<div style="font-weight:400;font-size:.85rem;margin-top:.2rem;">${esc(detail)}</div></div>
       <div class="card">${stats}<p class="small">Your evacuation zone: <a href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look up on Genasys</a> · Sign up for <a href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">AC Alert</a></p></div>
+      <p class="small" style="opacity:.85">NWS polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, Lahaina, Palisades) routinely cross polygons. Fire-season preparedness matters regardless.</p>
       <p class="small">Full tool with action checklist + buddy check + school decision: <a href="https://redflag-check.info?address=${encodeURIComponent(addr)}" target="_blank" rel="noopener">open redflag-check.info</a></p>
     `;
   } catch {
