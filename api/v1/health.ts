@@ -1,6 +1,6 @@
 // GET /api/v1/health → simple uptime + upstream-API status check.
 
-import { jsonResponse } from "../_lib";
+import { jsonResponse, USER_AGENT } from "../_lib";
 
 export const config = { runtime: "edge" };
 
@@ -9,7 +9,7 @@ async function probe(url: string): Promise<{ ok: boolean; status: number; ms: nu
   try {
     const res = await fetch(url, {
       method: "HEAD",
-      headers: { "User-Agent": "redflag-check.info (vedant28t@gmail.com)" },
+      headers: { "User-Agent": USER_AGENT },
     });
     return { ok: res.ok, status: res.status, ms: Date.now() - t0 };
   } catch {

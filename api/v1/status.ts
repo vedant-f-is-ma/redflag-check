@@ -3,11 +3,9 @@
 // just wants the list (e.g., a county PIO dashboard, a school-district admin
 // page, a Bay Area news widget).
 
-import { jsonResponse } from "../_lib";
+import { jsonResponse, USER_AGENT } from "../_lib";
 
 export const config = { runtime: "edge" };
-
-const USER_AGENT = "redflag-check.info (vedant28t@gmail.com)";
 
 export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);

@@ -1,7 +1,13 @@
 // Shared helpers: geocoding (US Census), NWS alert/forecast fetching, response shaping.
 // All functions are pure and side-effect-free except for outbound HTTP.
 
-const USER_AGENT = "redflag-check.info (vedant28t@gmail.com)";
+// NWS requires a real contact in the User-Agent. The contact email is read from
+// the NWS_CONTACT_EMAIL Vercel env var so it never appears in source.
+// Falls back to the bare domain if the env var is unset (NWS still accepts requests).
+const _contact = (typeof process !== "undefined" && process.env && process.env.NWS_CONTACT_EMAIL) || "";
+export const USER_AGENT = _contact
+  ? `redflag-check.info (${_contact})`
+  : "redflag-check.info";
 
 // ---------------------------------------------------------------------------
 // Geocoding (US Census, free, no auth)
