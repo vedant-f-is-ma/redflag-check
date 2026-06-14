@@ -741,7 +741,7 @@ $("#check-btn").addEventListener("click", async () => {
 });
 
 // SVG compass: iconic rendering — 🏠 for the user, a cluster of 🔥 for the active warning region,
-// thick wind arrow with 💨 label. Theme-aware via CSS classes (every color comes from a CSS variable
+// thick wind arrow with a text "winds" label. Theme-aware via CSS classes (every color comes from a CSS variable
 // so light/dark mode follows the page theme). Auto-scales viewport: zoomed in when only wind
 // is shown, wider when a polygon is at distance.
 function compassSVG(verdict) {
@@ -802,7 +802,7 @@ function compassSVG(verdict) {
 
     // Label now carries BOTH direction and speed so the SVG is self-sufficient
     // (no need to scroll to a separate readout). Width grows with content.
-    const windText = `💨 ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak)} mph`;
+    const windText = `winds ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak)} mph`;
     const labelWidth = Math.max(140, windText.length * 7);
     windEl = `
       <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${baseCx.toFixed(1)}" y2="${baseCy.toFixed(1)}"
