@@ -9,6 +9,8 @@ import {
   geocodeAddress,
   fetchAlertsAtPoint,
   fetchForecastSummary,
+  fetchActiveRedFlagPolygons,
+  classifyVerdict,
   buildActionChecklist,
   genasysUrl,
   jsonResponse,
@@ -48,23 +50,29 @@ export default async function handler(req: Request): Promise<Response> {
     return errorResponse("Provide either ?address=... or ?lat=...&lng=... (URL-encoded).", 400);
   }
 
-  // Fetch alerts + forecast in parallel
-  const [alerts, forecast] = await Promise.all([
+  // Fetch alerts at point, the full state RFW polygon set (for distance math), and forecast in parallel
+  const [pointAlerts, statePolygons, forecast] = await Promise.all([
     fetchAlertsAtPoint(lat, lng),
+    fetchActiveRedFlagPolygons("CA"),
     fetchForecastSummary(lat, lng),
   ]);
 
-  // Find the Red Flag Warning specifically (the most important question)
-  const redFlagAlerts = alerts.filter((a) => a.event === "Red Flag Warning");
-  const inZone = redFlagAlerts.length > 0;
+  // Find Red Flag Warning alerts (legacy field for backward compat)
+  const redFlagAlerts = pointAlerts.filter((a) => a.event === "Red Flag Warning");
 
-  // Heuristic: is the location in or near the East Bay Hills WUI?
-  // Bbox roughly: lat 37.4-37.9, lng -122.35 to -121.85
-  // The hills strip is east of -122.25 and west of -121.95 in lat range 37.55-37.85
-  const isHillsAdjacent =
-    lat >= 37.5 && lat <= 37.9 && lng >= -122.3 && lng <= -121.85 && !inZone;
+  // NEW: 4-state verdict using polygon geometry + wind vector
+  const verdict = classifyVerdict(lat, lng, statePolygons, forecast);
+  const inZone = verdict.state === "in_zone";
 
-  const checklist = buildActionChecklist(inZone, isHillsAdjacent);
+  // Backward-compatible category mapping for the existing action checklist
+  const checklistCategory: "in_zone" | "adjacent" | "out_of_zone" =
+    verdict.state === "in_zone" ? "in_zone"
+    : (verdict.state === "downwind_threat" || verdict.state === "adjacent") ? "adjacent"
+    : "out_of_zone";
+  const checklist = buildActionChecklist(
+    checklistCategory === "in_zone",
+    checklistCategory === "adjacent"
+  );
 
   return jsonResponse({
     input: {
@@ -78,9 +86,12 @@ export default async function handler(req: Request): Promise<Response> {
       matched_address: matched_address ?? null,
       zip: zip ?? null,
     },
+    // NEW: the 4-state verdict — clients should prefer this over `in_red_flag_zone` for UI rendering
+    verdict,
+    // Legacy fields preserved for any existing integrators
     in_red_flag_zone: inZone,
     alerts: redFlagAlerts,
-    other_alerts: alerts.filter((a) => a.event !== "Red Flag Warning"),
+    other_alerts: pointAlerts.filter((a) => a.event !== "Red Flag Warning"),
     forecast: forecast,
     action_checklist: checklist,
     links: {
@@ -90,12 +101,12 @@ export default async function handler(req: Request): Promise<Response> {
       airnow_fire_map: AIRNOW_FIRE_MAP,
     },
     sources: [
-      "NWS api.weather.gov (Red Flag Warning + hourly forecast)",
+      "NWS api.weather.gov (Red Flag Warning polygons + hourly wind forecast)",
       "US Census geocoder (address → lat/lng)",
       "Genasys Protect (official Alameda County evacuation zones)",
     ],
     disclaimer:
-      "Informational only. This is NOT an official emergency service. For official alerts, sign up at AC Alert. For active incidents, see Watch Duty. In case of fire, call 911.",
+      "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up at AC Alert. In case of fire, call 911.",
     generated_at: new Date().toISOString(),
   });
 }

@@ -157,22 +157,53 @@
   }
   .fire-season-banner strong { color: var(--accent); }
   .verdict.in-zone {
-    background: rgba(255, 68, 68, 0.12);
+    background: rgba(255, 68, 68, 0.15);
     border: 1px solid var(--danger);
-    color: #ffcccc;
+    color: #ffd5d5;
+  }
+  .verdict.downwind-threat {
+    background: rgba(255, 107, 61, 0.18);
+    border: 1px solid var(--accent);
+    color: #ffdcc0;
   }
   .verdict.adjacent {
-    background: var(--accent-soft);
-    border: 1px solid var(--accent);
-    color: #ffd1bd;
+    background: rgba(255, 200, 50, 0.12);
+    border: 1px solid #ffc832;
+    color: #ffe8a0;
   }
-  .verdict.out-of-zone {
-    background: rgba(74, 222, 128, 0.12);
+  .verdict.safe-tonight, .verdict.out-of-zone {
+    background: rgba(74, 222, 128, 0.10);
     border: 1px solid var(--safe);
-    color: #bef0c5;
+    color: #c0f0c8;
   }
-  .verdict h2 { margin: 0 0 .3rem; font-size: 1.1rem; }
-  .verdict p { margin: 0; font-size: .92rem; font-weight: 400; }
+  .verdict h2 { margin: 0 0 .35rem; font-size: 1.15rem; line-height: 1.3; }
+  .verdict p { margin: 0; font-size: .92rem; font-weight: 400; line-height: 1.4; }
+  .compass-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+  }
+  .readouts {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: .75rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .readout {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: .9rem;
+  }
+  .readout-label { color: var(--text-dim); font-weight: 500; }
+  .readout-value { color: var(--text); font-weight: 700; text-align: right; }
   .checklist h3 {
     font-size: .95rem;
     margin: 0 0 .5rem;
@@ -366,67 +397,223 @@ $("#check-btn").addEventListener("click", async () => {
   }
 });
 
-function renderZoneResult(d) {
-  const cat = d.action_checklist.category;
-  const verdictClass = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
-  const verdictTitle = cat === "in_zone"
-    ? "⚠️ Yes — the Red Flag Warning covers your address."
-    : cat === "adjacent"
-    ? "🚩 You're adjacent to the warning zone."
-    : "Your address is outside the active warning polygon.";
+// SVG compass: shows user at center, nearest polygon at correct bearing/distance, wind arrow.
+// All geometry is computed in JS so it renders instantly with no external dependencies.
+function compassSVG(verdict) {
+  const SIZE = 300;
+  const CENTER = SIZE / 2;
+  const MAX_MI = 25;
+  const PX_PER_MI = 130 / MAX_MI; // 130px = 25 miles at the edge
 
-  let verdictDetail = "";
-  if (d.alerts && d.alerts.length) {
-    const a = d.alerts[0];
-    const start = new Date(a.starts).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-    const end = new Date(a.ends).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-    verdictDetail = `Active from ${start} until ${end}.`;
-  } else {
-    verdictDetail = "No active Red Flag Warning at this point — but the situation can change overnight.";
+  const nearest = verdict.nearest_polygon;
+  const wind = verdict.wind_vector;
+
+  // Polygon position
+  let polygonEl = "";
+  if (nearest && isFinite(nearest.distance_mi)) {
+    const polyDistMi = Math.min(nearest.distance_mi, MAX_MI);
+    const polyDistPx = polyDistMi * PX_PER_MI;
+    // SVG angle: 0deg = east, so rotate -90 for compass bearing (where 0deg = north)
+    const polyRad = ((nearest.bearing_to_polygon_deg - 90) * Math.PI) / 180;
+    const polyX = CENTER + polyDistPx * Math.cos(polyRad);
+    const polyY = CENTER + polyDistPx * Math.sin(polyRad);
+    polygonEl = `
+      <circle cx="${polyX.toFixed(1)}" cy="${polyY.toFixed(1)}" r="22" fill="rgba(255,68,68,0.35)" stroke="rgba(255,68,68,0.9)" stroke-width="2"/>
+      <text x="${polyX.toFixed(1)}" y="${polyY.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="16">🔥</text>
+      <text x="${polyX.toFixed(1)}" y="${(polyY + 35).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#ffaaaa" font-weight="700">${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass}</text>
+    `;
   }
 
-  const tonight = d.forecast?.tonight;
-  const stats = tonight
-    ? `<div class="grid">
-        <div class="stat"><p class="label">Max wind tonight</p><p class="value">${Math.round(tonight.max_wind_mph)} mph</p></div>
-        <div class="stat"><p class="label">Min humidity</p><p class="value">${tonight.min_humidity_pct == null ? "—" : Math.round(tonight.min_humidity_pct) + "%"}</p></div>
-      </div>`
-    : "";
+  // Wind arrow: shows direction wind is BLOWING TOWARD (the fire-spread direction)
+  let windEl = "";
+  if (wind && wind.wind_from_deg !== null) {
+    const fromRad = ((wind.wind_from_deg - 90) * Math.PI) / 180;
+    const toRad = ((wind.wind_from_deg + 180 - 90) * Math.PI) / 180;
+    // Arrow starts at ~115px out from center on the FROM side, ends at ~50px out on the TO side
+    const startX = CENTER + 115 * Math.cos(fromRad);
+    const startY = CENTER + 115 * Math.sin(fromRad);
+    const endX = CENTER + 50 * Math.cos(toRad);
+    const endY = CENTER + 50 * Math.sin(toRad);
+    windEl = `
+      <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${endX.toFixed(1)}" y2="${endY.toFixed(1)}"
+        stroke="#4ec5ff" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="6 4" marker-end="url(#windHead)"/>
+      <text x="${startX.toFixed(1)}" y="${(startY - 8).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#7dd3ff" font-weight="700">WIND</text>
+    `;
+  }
 
-  const doList = d.action_checklist.do_now.map(s => `<li class="do">${esc(s)}</li>`).join("");
-  const dontList = d.action_checklist.do_not.map(s => `<li class="dont">${esc(s)}</li>`).join("");
-
-  const matched = d.location.matched_address ? `<p class="small">Matched: ${esc(d.location.matched_address)}</p>` : "";
-
-  const shareText = `East Bay Red Flag Warning tonight — check if it applies to your address: ${location.origin}`;
-  const smsLink = `sms:&body=${encodeURIComponent(shareText)}`;
+  // Range rings
+  const ring10 = 10 * PX_PER_MI;
+  const ring25 = 25 * PX_PER_MI;
 
   return `
-    <div class="verdict ${verdictClass}">
-      <h2>${verdictTitle}</h2>
-      <p>${esc(verdictDetail)}</p>
-    </div>
-    ${matched}
-    ${stats}
+    <svg viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg" style="max-width:300px;width:100%;display:block;margin:0 auto;">
+      <defs>
+        <marker id="windHead" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+          <path d="M0,0 L10,5 L0,10 Z" fill="#4ec5ff"/>
+        </marker>
+      </defs>
+      <rect width="${SIZE}" height="${SIZE}" fill="#1a1a1a" rx="10"/>
+      <circle cx="${CENTER}" cy="${CENTER}" r="${ring25.toFixed(1)}" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="3 5"/>
+      <circle cx="${CENTER}" cy="${CENTER}" r="${ring10.toFixed(1)}" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="3 5"/>
+      <text x="${CENTER + 4}" y="${(CENTER - ring10 - 4).toFixed(1)}" font-size="9" fill="#666" font-weight="500">10 mi</text>
+      <text x="${CENTER + 4}" y="${(CENTER - ring25 - 4).toFixed(1)}" font-size="9" fill="#666" font-weight="500">25 mi</text>
+      <text x="${CENTER}" y="18" text-anchor="middle" font-size="11" fill="#999" font-weight="700">N ↑</text>
+      ${windEl}
+      ${polygonEl}
+      <circle cx="${CENTER}" cy="${CENTER}" r="9" fill="#ff6b3d" stroke="#fff" stroke-width="2.5"/>
+      <text x="${CENTER}" y="${CENTER + 28}" text-anchor="middle" font-size="10" fill="#fff" font-weight="800" letter-spacing=".05em">YOU</text>
+    </svg>
+  `;
+}
+
+function renderZoneResult(d) {
+  const v = d.verdict || {};
+  const state = v.state || "safe_tonight";
+  const verdictClass = state.replace(/_/g, "-"); // "downwind_threat" -> "downwind-threat"
+
+  const headline = v.headline || "Result";
+  const explanation = v.short_explanation || "";
+
+  const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
+  const compass = hasGeometry ? `<div class="compass-card">${compassSVG(v)}</div>` : "";
+
+  // Plain-English readouts
+  const readouts = [];
+  if (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) {
+    const np = v.nearest_polygon;
+    readouts.push(`<div class="readout"><span class="readout-label">Nearest active warning</span><span class="readout-value">${Math.round(np.distance_mi)} mi ${np.bearing_to_polygon_compass}</span></div>`);
+  }
+  if (v.wind_vector) {
+    const wv = v.wind_vector;
+    readouts.push(`<div class="readout"><span class="readout-label">Tonight's wind</span><span class="readout-value">from ${esc(wv.wind_from_compass)} at ${Math.round(wv.wind_speed_mph_peak)} mph</span></div>`);
+  }
+  if (v.downwind && v.downwind.alignment_angle_deg !== null && v.nearest_polygon) {
+    const aligned = v.downwind.triggered;
+    const msg = aligned
+      ? "Wind blowing FROM the warning TOWARD you"
+      : "Wind blowing AWAY from the warning";
+    readouts.push(`<div class="readout"><span class="readout-label">Direction</span><span class="readout-value" style="color:${aligned ? '#ffaaaa' : '#c0f0c8'}">${msg}</span></div>`);
+  }
+  const readoutsHtml = readouts.length ? `<div class="readouts">${readouts.join("")}</div>` : "";
+
+  const doList = (d.action_checklist?.do_now || []).map(s => `<li class="do">${esc(s)}</li>`).join("");
+  const dontList = (d.action_checklist?.do_not || []).map(s => `<li class="dont">${esc(s)}</li>`).join("");
+  const checklistHtml = (doList || dontList) ? `
     <div class="card checklist">
       <h3>What to do tonight</h3>
       <ul>${doList}</ul>
-      <h3>What NOT to do</h3>
-      <ul>${dontList}</ul>
-    </div>
+      ${dontList ? `<h3>What NOT to do</h3><ul>${dontList}</ul>` : ""}
+    </div>` : "";
+
+  const matched = d.location?.matched_address ? `<p class="small">Matched: ${esc(d.location.matched_address)}</p>` : "";
+
+  const shareHeadline = state === "in_zone" || state === "downwind_threat"
+    ? "Fire-weather warning for your address tonight"
+    : "Red Flag Warning check for your address";
+  const shareText = `${shareHeadline}: ${location.origin}`;
+  const smsLink = `sms:&body=${encodeURIComponent(shareText)}`;
+
+  const links = d.links || {};
+  const linksHtml = links.genasys_evacuation_zone_lookup ? `
     <div class="card">
       <h3 style="margin:0 0 .6rem">Useful links</h3>
-      <a class="secondary" href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Look up your evacuation zone</a>
-      <a class="secondary" href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">Sign up for AC Alert</a>
-      <a class="secondary" href="${d.links.watch_duty}" target="_blank" rel="noopener">Open Watch Duty</a>
-      <a class="secondary" href="${d.links.airnow_fire_map}" target="_blank" rel="noopener">Air quality + fire map</a>
+      <a class="secondary" href="${links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Look up your evacuation zone</a>
+      <a class="secondary" href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Sign up for AC Alert</a>
+      <a class="secondary" href="${links.watch_duty}" target="_blank" rel="noopener">Open Watch Duty</a>
+      <a class="secondary" href="${links.airnow_fire_map}" target="_blank" rel="noopener">Air quality + fire map</a>
+    </div>` : "";
+
+  return `
+    <div class="verdict ${verdictClass}">
+      <h2>${esc(headline)}</h2>
+      <p>${esc(explanation)}</p>
     </div>
+    ${matched}
+    ${compass}
+    ${readoutsHtml}
+    ${checklistHtml}
+    ${linksHtml}
     <div class="card">
       <h3 style="margin:0 0 .6rem">Share this with your neighbor in the hills</h3>
       <a class="secondary" href="${smsLink}">Send via iMessage</a>
       <button class="secondary" id="copy-link">Copy link</button>
     </div>
+    <p class="small" style="margin-top:1rem;opacity:0.7;line-height:1.5">Note: the downwind reading is a flat-earth wind-line approximation. Ridges and canyons change actual fire paths. Always heed official evacuation orders.</p>
   `;
+}
+
+// Demo mode: ?demo=in_zone|downwind_threat|adjacent|safe_tonight
+// Lets you preview all 4 verdict states without waiting for a real warning.
+function demoVerdict(state) {
+  const wind = { wind_from_compass: "NE", wind_from_deg: 45, wind_to_compass: "SW", wind_to_deg: 225, wind_speed_mph_peak: 35 };
+  const np = {
+    polygon_id: "demo",
+    polygon_headline: "Red Flag Warning issued for East Bay Hills",
+    distance_mi: state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18,
+    bearing_to_polygon_deg: 45,
+    bearing_to_polygon_compass: "NE",
+    nearest_lat: 37.78,
+    nearest_lng: -122.18,
+  };
+  const states = {
+    in_zone: {
+      state: "in_zone",
+      headline: "Your address is inside the active Red Flag Warning.",
+      short_explanation: "Take action tonight: prepare a go-bag and be ready to leave if instructed.",
+      nearest_polygon: np,
+      wind_vector: wind,
+      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "" },
+    },
+    downwind_threat: {
+      state: "downwind_threat",
+      headline: "Wind is pushing fire conditions toward your address tonight.",
+      short_explanation: "Active warning is 8 mi NE of you. Tonight's wind is from the NE at 35 mph. That means fire-favorable conditions are pointing toward you.",
+      nearest_polygon: np,
+      wind_vector: wind,
+      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "high", explanation: "" },
+    },
+    adjacent: {
+      state: "adjacent",
+      headline: "You're near the active warning. Stay alert.",
+      short_explanation: "Nearest active warning is 3 mi NE of you. Conditions could shift.",
+      nearest_polygon: np,
+      wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 12 },
+      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
+    },
+    safe_tonight: {
+      state: "safe_tonight",
+      headline: "You're in a safer area tonight.",
+      short_explanation: "Active warning is 18 mi away and wind is blowing fire conditions away from you.",
+      nearest_polygon: np,
+      wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 14 },
+      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
+    },
+  };
+  const verdict = states[state] || states.safe_tonight;
+  return {
+    location: { lat: 37.7, lng: -122.0, matched_address: "DEMO ADDRESS, FREMONT, CA", zip: "94538" },
+    verdict,
+    action_checklist: {
+      category: state === "in_zone" ? "in_zone" : (state === "downwind_threat" || state === "adjacent") ? "adjacent" : "out_of_zone",
+      do_now: state === "in_zone"
+        ? ["Charge your phone. Keep car keys near the door.", "Park your car facing OUTWARD on the driveway.", "Pack a go-bag: meds, IDs, phone charger, water, sturdy shoes.", "Set a buddy to text-check you at 11 PM tonight."]
+        : state === "downwind_threat"
+        ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
+        : state === "adjacent"
+        ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for AC Alert if you haven't.", "Know your Genasys zone in case conditions change."]
+        : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills — they may be in the active polygon."],
+      do_not: state === "in_zone" || state === "downwind_threat"
+        ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
+        : ["Avoid sparking activities outdoors during fire season."],
+      if_evacuation_called: [],
+    },
+    links: {
+      genasys_evacuation_zone_lookup: "https://protect.genasys.com/search?lat=37.7&lon=-122.0",
+      official_ac_alert_signup: "https://member.everbridge.net/index/453003085612570",
+      watch_duty: "https://www.watchduty.org",
+      airnow_fire_map: "https://fire.airnow.gov/",
+    },
+  };
 }
 
 function bindShare(addr, data) {
@@ -595,6 +782,28 @@ function renderBuddyResult(d) {
     </div>
   `;
 }
+
+// ---------- Demo mode (?demo=in_zone|downwind_threat|adjacent|safe_tonight) ----------
+// Lets reviewers (Doug, Fire Safe Council folks) preview each of the 4 verdict states
+// without waiting for a real Red Flag Warning.
+(function setupDemoMode() {
+  const params = new URLSearchParams(location.search);
+  const demoState = params.get("demo");
+  if (!demoState) return;
+  const valid = ["in_zone", "downwind_threat", "adjacent", "safe_tonight"];
+  if (!valid.includes(demoState)) return;
+  const data = demoVerdict(demoState);
+  const out = $("#zone-result");
+  if (out) {
+    out.innerHTML = renderZoneResult(data);
+    bindShare("demo address", data);
+  }
+  // Show a small "DEMO" badge so it's clear this isn't real data
+  const banner = document.createElement("div");
+  banner.style.cssText = "background:#2a2a2a;border:1px dashed #888;padding:.5rem .8rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem;color:#aaa;text-align:center;";
+  banner.innerHTML = `DEMO PREVIEW: <strong style="color:#fff">${demoState.replace("_", " ")}</strong> state. <a href="/" style="color:var(--accent)">Try a real address →</a> · Switch state: <a href="?demo=in_zone" style="color:#ffaaaa">in zone</a> · <a href="?demo=downwind_threat" style="color:#ffdcc0">downwind</a> · <a href="?demo=adjacent" style="color:#ffe8a0">adjacent</a> · <a href="?demo=safe_tonight" style="color:#c0f0c8">safe</a>`;
+  out.parentElement.insertBefore(banner, out);
+})();
 </script>
 </body>
 </html>
