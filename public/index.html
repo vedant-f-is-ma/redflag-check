@@ -304,11 +304,43 @@
     color: #5a2800;
     background: rgba(217, 79, 29, 0.07);
   }
-  /* Compass card stays dark in both themes — instrumentation/scope-display idiom */
-  .compass-card {
-    background: #1a1a1a !important;
-    border-color: #333 !important;
+  /* Compass theming — every SVG color is a CSS variable so it follows light/dark.
+     Defaults are tuned for dark; light overrides come below. */
+  :root {
+    --compass-bg: #1a1a1a;
+    --compass-frame: #353535;
+    --compass-cardinal: #b0b0b0;
+    --compass-cardinal-anchor: #f0f0f0;
+    --compass-text-strong: #ffffff;
+    --compass-wind: #4ec5ff;
+    --compass-wind-label: #7dd3ff;
+    --compass-poly-fill: rgba(255,68,68,0.28);
+    --compass-poly-stroke: rgba(255,98,98,0.95);
+    --compass-poly-label: #ffaaaa;
   }
+  html[data-theme="light"] {
+    --compass-bg: #f1f3f5;
+    --compass-frame: #c8ccd0;
+    --compass-cardinal: #555;
+    --compass-cardinal-anchor: #1a1a1a;
+    --compass-text-strong: #1a1a1a;
+    --compass-wind: #0671b3;
+    --compass-wind-label: #04547d;
+    --compass-poly-fill: rgba(197, 35, 42, 0.18);
+    --compass-poly-stroke: rgba(160, 25, 30, 1);
+    --compass-poly-label: #7a1a1a;
+  }
+  .compass-svg-bg { fill: var(--compass-bg); }
+  .compass-frame { stroke: var(--compass-frame); }
+  .compass-cardinal { fill: var(--compass-cardinal); font-weight: 700; letter-spacing: .06em; }
+  .compass-cardinal-n { fill: var(--compass-cardinal-anchor); font-weight: 900; letter-spacing: .08em; }
+  .compass-wind-line { stroke: var(--compass-wind); }
+  .compass-wind-head { fill: var(--compass-wind); }
+  .compass-wind-label { fill: var(--compass-wind-label); font-weight: 800; letter-spacing: .05em; }
+  .compass-poly { fill: var(--compass-poly-fill); stroke: var(--compass-poly-stroke); }
+  .compass-poly-label { fill: var(--compass-poly-label); font-weight: 800; letter-spacing: .04em; }
+  .compass-you-dot { fill: var(--accent); stroke: var(--compass-text-strong); }
+  .compass-you-label { fill: var(--compass-text-strong); font-weight: 900; letter-spacing: .08em; }
   .verdict h2 { margin: 0 0 .35rem; font-size: 1.15rem; line-height: 1.3; }
   .verdict p { margin: 0; font-size: .92rem; font-weight: 400; line-height: 1.4; }
   .compass-card {
@@ -598,90 +630,129 @@ $("#check-btn").addEventListener("click", async () => {
   }
 });
 
-// SVG compass: user at center, polygon at correct bearing/distance, wind arrow with inline arrowhead.
-// All geometry computed in JS — renders instantly, no external deps, no marker-scale-with-stroke surprises.
+// SVG compass: iconic rendering — 🏠 for the user, a cluster of 🔥 for the active warning region,
+// thick wind arrow with 💨 label. Theme-aware via CSS classes (every color comes from a CSS variable
+// so light/dark mode follows the page theme). Auto-scales viewport: zoomed in when only wind
+// is shown, wider when a polygon is at distance.
 function compassSVG(verdict) {
-  const SIZE = 320;
-  const CENTER = SIZE / 2;
-  const RING_PX = 130;        // outer ring radius
-  const MAX_MI = 25;           // 25 miles = outer ring
-
   const nearest = verdict.nearest_polygon;
   const wind = verdict.wind_vector;
+  const hasPolygon = nearest && isFinite(nearest.distance_mi);
 
-  // Helper: convert compass bearing (0=N, 90=E) to SVG radians (0=E, 90=S)
-  const bearingToRad = (deg) => ((deg - 90) * Math.PI) / 180;
+  // Adaptive sizing: tight when wind-only, wider when polygon is at distance
+  const SIZE = hasPolygon ? 340 : 280;
+  const CENTER = SIZE / 2;
+  const RING_PX = hasPolygon ? 140 : 108;
 
-  // ---- Compass frame: outer ring + cardinal direction labels ----
+  // Scale outer range to the actual polygon distance (no wasted space if it's 5 mi away)
+  let MAX_MI;
+  if (hasPolygon) MAX_MI = Math.max(8, Math.min(30, Math.ceil(nearest.distance_mi * 1.4)));
+  else MAX_MI = 8;
+
+  // Compass bearing → SVG radians (0°N = up)
+  const toRad = (deg) => ((deg - 90) * Math.PI) / 180;
+
+  // ---- Compass frame + cardinal direction labels ----
+  // North is anchor-bold (orientation reference); E/S/W are softer.
   const frame = `
-    <circle cx="${CENTER}" cy="${CENTER}" r="${RING_PX}" fill="none" stroke="#2a2a2a" stroke-width="1" stroke-dasharray="3 4"/>
-    <text x="${CENTER}" y="22" text-anchor="middle" font-size="14" fill="#aaa" font-weight="800" letter-spacing=".05em">N</text>
-    <text x="${CENTER}" y="${SIZE - 10}" text-anchor="middle" font-size="13" fill="#666" font-weight="600">S</text>
-    <text x="${SIZE - 14}" y="${CENTER + 5}" text-anchor="middle" font-size="13" fill="#666" font-weight="600">E</text>
-    <text x="14" y="${CENTER + 5}" text-anchor="middle" font-size="13" fill="#666" font-weight="600">W</text>
+    <circle cx="${CENTER}" cy="${CENTER}" r="${RING_PX}" fill="none" class="compass-frame" stroke-width="1.5" stroke-dasharray="4 6"/>
+    <text x="${CENTER}" y="26" text-anchor="middle" font-size="22" class="compass-cardinal-n">N</text>
+    <text x="${CENTER}" y="${SIZE - 8}" text-anchor="middle" font-size="17" class="compass-cardinal">S</text>
+    <text x="${SIZE - 20}" y="${CENTER + 6}" text-anchor="middle" font-size="17" class="compass-cardinal">E</text>
+    <text x="20" y="${CENTER + 6}" text-anchor="middle" font-size="17" class="compass-cardinal">W</text>
   `;
 
-  // ---- Wind arrow: drawn as one polyline + inline polygon arrowhead (no SVG markers, so no scaling issues) ----
+  // ---- Wind arrow ----
   let windEl = "";
   if (wind && wind.wind_from_deg !== null) {
     const fromDeg = wind.wind_from_deg;
-    const fromRad = bearingToRad(fromDeg);
-    const toRad = bearingToRad(fromDeg + 180);
+    const fromRad = toRad(fromDeg);
+    const toRadV = toRad(fromDeg + 180);
 
-    const startDist = 100;     // far edge in the FROM direction
-    const endDist = 22;        // just outside the user dot, on the TO side
+    const startDist = RING_PX - 32;
+    const endDist = 38; // outside the house emoji so the arrowhead doesn't collide
     const startX = CENTER + startDist * Math.cos(fromRad);
     const startY = CENTER + startDist * Math.sin(fromRad);
-    const endX = CENTER + endDist * Math.cos(toRad);
-    const endY = CENTER + endDist * Math.sin(toRad);
+    const endX = CENTER + endDist * Math.cos(toRadV);
+    const endY = CENTER + endDist * Math.sin(toRadV);
 
-    // Inline arrowhead: small triangle at the line's end, pointing in the TO direction
-    const arrowLen = 9;
-    const arrowHalfWidth = 5;
-    const headTipX = endX;
-    const headTipY = endY;
-    const baseCx = endX - arrowLen * Math.cos(toRad);
-    const baseCy = endY - arrowLen * Math.sin(toRad);
-    const perpRad = toRad + Math.PI / 2;
-    const baseL_X = baseCx + arrowHalfWidth * Math.cos(perpRad);
-    const baseL_Y = baseCy + arrowHalfWidth * Math.sin(perpRad);
-    const baseR_X = baseCx - arrowHalfWidth * Math.cos(perpRad);
-    const baseR_Y = baseCy - arrowHalfWidth * Math.sin(perpRad);
+    const arrowLen = 18, arrowHalfW = 11;
+    const baseCx = endX - arrowLen * Math.cos(toRadV);
+    const baseCy = endY - arrowLen * Math.sin(toRadV);
+    const perp = toRadV + Math.PI / 2;
+    const bLX = baseCx + arrowHalfW * Math.cos(perp);
+    const bLY = baseCy + arrowHalfW * Math.sin(perp);
+    const bRX = baseCx - arrowHalfW * Math.cos(perp);
+    const bRY = baseCy - arrowHalfW * Math.sin(perp);
+
+    // Label positioned alongside the wind line's start (offset perpendicular to the line)
+    const labelOffset = 26;
+    const labelX = startX + labelOffset * Math.cos(perp);
+    const labelY = startY + labelOffset * Math.sin(perp);
 
     windEl = `
       <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${baseCx.toFixed(1)}" y2="${baseCy.toFixed(1)}"
-        stroke="#4ec5ff" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 4" opacity="0.85"/>
-      <polygon points="${headTipX.toFixed(1)},${headTipY.toFixed(1)} ${baseL_X.toFixed(1)},${baseL_Y.toFixed(1)} ${baseR_X.toFixed(1)},${baseR_Y.toFixed(1)}"
-        fill="#4ec5ff"/>
-      <text x="${startX.toFixed(1)}" y="${(startY - 10).toFixed(1)}" text-anchor="middle" font-size="11" fill="#7dd3ff" font-weight="800" letter-spacing=".04em">WIND from ${esc(wind.wind_from_compass)}</text>
+        class="compass-wind-line" stroke-width="4" stroke-linecap="round" stroke-dasharray="9 5"/>
+      <polygon points="${endX.toFixed(1)},${endY.toFixed(1)} ${bLX.toFixed(1)},${bLY.toFixed(1)} ${bRX.toFixed(1)},${bRY.toFixed(1)}"
+        class="compass-wind-head"/>
+      <g transform="translate(${labelX.toFixed(1)},${labelY.toFixed(1)})">
+        <rect x="-60" y="-15" width="120" height="25" rx="12" class="compass-svg-bg" opacity="0.88"/>
+        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-wind-label">💨 from ${esc(wind.wind_from_compass)}</text>
+      </g>
     `;
   }
 
-  // ---- Polygon (active warning), if any ----
+  // ---- Polygon: rendered as a *region* (ellipse background + cluster of 🔥 emojis), not a point ----
   let polygonEl = "";
-  if (nearest && isFinite(nearest.distance_mi)) {
+  if (hasPolygon) {
     const distMi = Math.min(nearest.distance_mi, MAX_MI);
-    // Map 0..25mi -> 30..130 px (push polygon out from center for visibility)
-    const distPx = 30 + ((RING_PX - 30) * distMi) / MAX_MI;
-    const polyRad = bearingToRad(nearest.bearing_to_polygon_deg);
+    const distPx = 54 + ((RING_PX - 70) * distMi) / MAX_MI;
+    const polyRad = toRad(nearest.bearing_to_polygon_deg);
     const polyX = CENTER + distPx * Math.cos(polyRad);
     const polyY = CENTER + distPx * Math.sin(polyRad);
+
+    // Cluster of fire emojis to convey "this is a region of fire risk", not one fire icon
+    const fireScatter = [
+      { dx: 0,   dy: 0,   sz: 30 },
+      { dx: -18, dy: -10, sz: 21 },
+      { dx: 19,  dy: -12, sz: 22 },
+      { dx: -10, dy: 16,  sz: 20 },
+      { dx: 16,  dy: 14,  sz: 19 },
+    ];
+    const fires = fireScatter.map(({dx, dy, sz}) =>
+      `<text x="${(polyX + dx).toFixed(1)}" y="${(polyY + dy).toFixed(1)}" text-anchor="middle" dy=".35em" font-size="${sz}">🔥</text>`
+    ).join("");
+
     polygonEl = `
-      <circle cx="${polyX.toFixed(1)}" cy="${polyY.toFixed(1)}" r="26" fill="rgba(255,68,68,0.25)" stroke="rgba(255,68,68,0.9)" stroke-width="2"/>
-      <text x="${polyX.toFixed(1)}" y="${polyY.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="20">🔥</text>
-      <text x="${polyX.toFixed(1)}" y="${(polyY + 42).toFixed(1)}" text-anchor="middle" font-size="11" fill="#ffaaaa" font-weight="800">${Math.round(nearest.distance_mi)} mi ${esc(nearest.bearing_to_polygon_compass)}</text>
+      <ellipse cx="${polyX.toFixed(1)}" cy="${polyY.toFixed(1)}" rx="42" ry="36" class="compass-poly" stroke-width="2.5"/>
+      ${fires}
+      <g transform="translate(${polyX.toFixed(1)},${(polyY + 58).toFixed(1)})">
+        <rect x="-58" y="-15" width="116" height="25" rx="12" class="compass-svg-bg" opacity="0.92"/>
+        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-poly-label">${Math.round(nearest.distance_mi)} mi ${esc(nearest.bearing_to_polygon_compass)}</text>
+      </g>
     `;
   }
 
-  // ---- Center "YOU" marker ----
+  // ---- User: 🏠 emoji (not an abstract dot) ----
   const userEl = `
-    <circle cx="${CENTER}" cy="${CENTER}" r="10" fill="#ff6b3d" stroke="#fff" stroke-width="2.5"/>
-    <text x="${CENTER}" y="${CENTER + 30}" text-anchor="middle" font-size="11" fill="#fff" font-weight="800" letter-spacing=".06em">YOU</text>
+    <text x="${CENTER}" y="${CENTER}" text-anchor="middle" dy=".35em" font-size="32">🏠</text>
+    <g transform="translate(${CENTER},${CENTER + 38})">
+      <rect x="-32" y="-13" width="64" height="22" rx="11" class="compass-svg-bg" opacity="0.92"/>
+      <text x="0" y="3" text-anchor="middle" font-size="13" class="compass-you-label">YOU</text>
+    </g>
   `;
 
+  // Aria label that describes the actual scene (better than a generic "compass" label)
+  const ariaLabel = (() => {
+    const parts = ["Compass diagram"];
+    if (hasPolygon) parts.push(`active Red Flag Warning is ${Math.round(nearest.distance_mi)} miles ${nearest.bearing_to_polygon_compass} of your address`);
+    if (wind) parts.push(`tonight's wind is from the ${wind.wind_from_compass} at ${Math.round(wind.wind_speed_mph_peak)} miles per hour`);
+    return parts.join(", ");
+  })();
+
   return `
-    <svg viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg" style="max-width:320px;width:100%;display:block;margin:0 auto;" role="img" aria-label="Compass showing your location, wind direction, and nearest active Red Flag Warning if any">
-      <rect width="${SIZE}" height="${SIZE}" fill="#1a1a1a" rx="12"/>
+    <svg viewBox="0 0 ${SIZE} ${SIZE}" xmlns="http://www.w3.org/2000/svg" style="max-width:${SIZE}px;width:100%;display:block;margin:0 auto;" role="img" aria-label="${esc(ariaLabel)}">
+      <rect width="${SIZE}" height="${SIZE}" class="compass-svg-bg" rx="14"/>
       ${frame}
       ${windEl}
       ${polygonEl}
