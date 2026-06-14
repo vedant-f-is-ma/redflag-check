@@ -334,13 +334,113 @@
   .compass-frame { stroke: var(--compass-frame); }
   .compass-cardinal { fill: var(--compass-cardinal); font-weight: 700; letter-spacing: .06em; }
   .compass-cardinal-n { fill: var(--compass-cardinal-anchor); font-weight: 900; letter-spacing: .08em; }
-  .compass-wind-line { stroke: var(--compass-wind); }
-  .compass-wind-head { fill: var(--compass-wind); }
+  .compass-wind-line { stroke: var(--compass-wind); animation: wind-flow 1.5s linear infinite; }
+  .compass-wind-head { fill: var(--compass-wind); transform-origin: center; animation: wind-head-pulse 1.5s ease-in-out infinite; }
   .compass-wind-label { fill: var(--compass-wind-label); font-weight: 800; letter-spacing: .05em; }
   .compass-poly { fill: var(--compass-poly-fill); stroke: var(--compass-poly-stroke); }
   .compass-poly-label { fill: var(--compass-poly-label); font-weight: 800; letter-spacing: .04em; }
   .compass-you-dot { fill: var(--accent); stroke: var(--compass-text-strong); }
   .compass-you-label { fill: var(--compass-text-strong); font-weight: 900; letter-spacing: .08em; }
+
+  /* Wind animation: dashes flow along the line in the direction of wind;
+     arrowhead breathes gently. Both stop for users with prefers-reduced-motion. */
+  @keyframes wind-flow {
+    to { stroke-dashoffset: -14; }    /* dash 9 + gap 5 = 14 = one full cycle */
+  }
+  @keyframes wind-head-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.6; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .compass-wind-line, .compass-wind-head { animation: none; }
+  }
+
+  /* ===== SITUATION CARD =====
+     The single hero element after a result. Contains verdict headline, matched
+     address, the diagram, and the explanation. Background washes to verdict
+     color for the urgent states (in_zone, downwind_threat) so the whole card
+     reads as the visual answer to "what's my situation tonight". */
+  .situation-card {
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .situation-card.state-in-zone {
+    background: rgba(255, 68, 68, 0.16);
+    border-color: var(--danger);
+  }
+  .situation-card.state-downwind-threat {
+    background: rgba(255, 107, 61, 0.16);
+    border-color: var(--accent);
+  }
+  .situation-card.state-adjacent {
+    background: rgba(255, 200, 50, 0.10);
+    border-color: #ffc832;
+  }
+  .situation-card.state-safe-tonight {
+    background: var(--bg-card);
+    border-color: var(--safe);
+  }
+  html[data-theme="light"] .situation-card.state-in-zone {
+    background: rgba(197, 35, 42, 0.12);
+  }
+  html[data-theme="light"] .situation-card.state-downwind-threat {
+    background: rgba(217, 79, 29, 0.13);
+  }
+  html[data-theme="light"] .situation-card.state-adjacent {
+    background: rgba(217, 154, 30, 0.13);
+  }
+
+  .situation-card .verdict-title {
+    margin: 0 0 .2rem;
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1.3;
+  }
+  .situation-card.state-in-zone .verdict-title { color: #ffd5d5; }
+  .situation-card.state-downwind-threat .verdict-title { color: #ffdcc0; }
+  .situation-card.state-adjacent .verdict-title { color: #ffe8a0; }
+  .situation-card.state-safe-tonight .verdict-title { color: var(--text); }
+  html[data-theme="light"] .situation-card.state-in-zone .verdict-title { color: #8a1a1a; }
+  html[data-theme="light"] .situation-card.state-downwind-threat .verdict-title { color: #8a3500; }
+  html[data-theme="light"] .situation-card.state-adjacent .verdict-title { color: #6a4500; }
+
+  .situation-card .matched-address {
+    margin: 0 0 1rem;
+    font-size: .82rem;
+    color: var(--text-dim);
+    font-weight: 500;
+    letter-spacing: .02em;
+  }
+  .situation-card .compass-wrapper { margin: 0 -.25rem 1rem; }
+  .situation-card .verdict-explanation {
+    margin: 0;
+    font-size: .95rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .situation-card.state-in-zone .verdict-explanation,
+  .situation-card.state-downwind-threat .verdict-explanation,
+  .situation-card.state-adjacent .verdict-explanation { color: var(--text); }
+
+  .downwind-callout {
+    margin: .75rem 0 0;
+    padding: .6rem .85rem;
+    background: rgba(255, 68, 68, 0.18);
+    border-left: 3px solid var(--danger);
+    border-radius: 6px;
+    font-size: .9rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #ffd5d5;
+  }
+  html[data-theme="light"] .downwind-callout {
+    background: rgba(197, 35, 42, 0.10);
+    color: #8a1a1a;
+  }
   .verdict h2 { margin: 0 0 .35rem; font-size: 1.15rem; line-height: 1.3; }
   .verdict p { margin: 0; font-size: .92rem; font-weight: 400; line-height: 1.4; }
   .compass-card {
@@ -690,14 +790,18 @@ function compassSVG(verdict) {
     const labelX = startX + labelOffset * Math.cos(perp);
     const labelY = startY + labelOffset * Math.sin(perp);
 
+    // Label now carries BOTH direction and speed so the SVG is self-sufficient
+    // (no need to scroll to a separate readout). Width grows with content.
+    const windText = `💨 ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak)} mph`;
+    const labelWidth = Math.max(140, windText.length * 7);
     windEl = `
       <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${baseCx.toFixed(1)}" y2="${baseCy.toFixed(1)}"
         class="compass-wind-line" stroke-width="4" stroke-linecap="round" stroke-dasharray="9 5"/>
       <polygon points="${endX.toFixed(1)},${endY.toFixed(1)} ${bLX.toFixed(1)},${bLY.toFixed(1)} ${bRX.toFixed(1)},${bRY.toFixed(1)}"
         class="compass-wind-head"/>
       <g transform="translate(${labelX.toFixed(1)},${labelY.toFixed(1)})">
-        <rect x="-60" y="-15" width="120" height="25" rx="12" class="compass-svg-bg" opacity="0.88"/>
-        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-wind-label">💨 from ${esc(wind.wind_from_compass)}</text>
+        <rect x="${(-labelWidth / 2).toFixed(1)}" y="-15" width="${labelWidth}" height="26" rx="13" class="compass-svg-bg" opacity="0.92"/>
+        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-wind-label">${windText}</text>
       </g>
     `;
   }
@@ -733,13 +837,10 @@ function compassSVG(verdict) {
     `;
   }
 
-  // ---- User: 🏠 emoji (not an abstract dot) ----
+  // ---- User: 🏠 emoji, sized as an anchor not a focal point ----
   const userEl = `
-    <text x="${CENTER}" y="${CENTER}" text-anchor="middle" dy=".35em" font-size="32">🏠</text>
-    <g transform="translate(${CENTER},${CENTER + 38})">
-      <rect x="-32" y="-13" width="64" height="22" rx="11" class="compass-svg-bg" opacity="0.92"/>
-      <text x="0" y="3" text-anchor="middle" font-size="13" class="compass-you-label">YOU</text>
-    </g>
+    <text x="${CENTER}" y="${CENTER}" text-anchor="middle" dy=".35em" font-size="22">🏠</text>
+    <text x="${CENTER}" y="${CENTER + 28}" text-anchor="middle" font-size="10.5" class="compass-you-label">YOU</text>
   `;
 
   // Aria label that describes the actual scene (better than a generic "compass" label)
@@ -764,33 +865,28 @@ function compassSVG(verdict) {
 function renderZoneResult(d) {
   const v = d.verdict || {};
   const state = v.state || "safe_tonight";
-  const verdictClass = state.replace(/_/g, "-"); // "downwind_threat" -> "downwind-threat"
-
+  const stateClass = state.replace(/_/g, "-");      // e.g. "downwind-threat"
   const headline = v.headline || "Result";
   const explanation = v.short_explanation || "";
 
+  // Compass — always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
-  const compass = hasGeometry ? `<div class="compass-card">${compassSVG(v)}</div>` : "";
+  const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
 
-  // Plain-English readouts
-  const readouts = [];
-  if (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) {
-    const np = v.nearest_polygon;
-    readouts.push(`<div class="readout"><span class="readout-label">Nearest active warning</span><span class="readout-value">${Math.round(np.distance_mi)} mi ${np.bearing_to_polygon_compass}</span></div>`);
-  }
-  if (v.wind_vector) {
-    const wv = v.wind_vector;
-    readouts.push(`<div class="readout"><span class="readout-label">Tonight's wind</span><span class="readout-value">from ${esc(wv.wind_from_compass)} at ${Math.round(wv.wind_speed_mph_peak)} mph</span></div>`);
-  }
-  if (v.downwind && v.downwind.alignment_angle_deg !== null && v.nearest_polygon) {
-    const aligned = v.downwind.triggered;
-    const msg = aligned
-      ? "Wind blowing FROM the warning TOWARD you"
-      : "Wind blowing AWAY from the warning";
-    readouts.push(`<div class="readout"><span class="readout-label">Direction</span><span class="readout-value readout-${aligned ? 'danger' : 'safe'}">${msg}</span></div>`);
-  }
-  const readoutsHtml = readouts.length ? `<div class="readouts">${readouts.join("")}</div>` : "";
+  // Matched address — small line beneath the verdict title
+  const matchedAddr = d.location?.matched_address
+    ? `<p class="matched-address">📍 ${esc(d.location.matched_address)}</p>`
+    : "";
 
+  // Downwind callout — only when wind is pushing fire conditions toward the user.
+  // This is the one interpretation that's worth surfacing in plain English; the rest
+  // (distance, wind speed) is now on the SVG.
+  let downwindCallout = "";
+  if (v.downwind && v.downwind.triggered) {
+    downwindCallout = `<p class="downwind-callout">⚠ Wind is blowing FROM the warning area TOWARD your address. Treat tonight as if you were inside the polygon.</p>`;
+  }
+
+  // Action checklist — outside the situation card, in its own card below
   const doList = (d.action_checklist?.do_now || []).map(s => `<li class="do">${esc(s)}</li>`).join("");
   const dontList = (d.action_checklist?.do_not || []).map(s => `<li class="dont">${esc(s)}</li>`).join("");
   const checklistHtml = (doList || dontList) ? `
@@ -799,8 +895,6 @@ function renderZoneResult(d) {
       <ul>${doList}</ul>
       ${dontList ? `<h3>What NOT to do</h3><ul>${dontList}</ul>` : ""}
     </div>` : "";
-
-  const matched = d.location?.matched_address ? `<p class="small">Matched: ${esc(d.location.matched_address)}</p>` : "";
 
   const shareHeadline = state === "in_zone" || state === "downwind_threat"
     ? "Fire-weather warning for your address tonight"
@@ -819,13 +913,13 @@ function renderZoneResult(d) {
     </div>` : "";
 
   return `
-    <div class="verdict ${verdictClass}">
-      <h2>${esc(headline)}</h2>
-      <p>${esc(explanation)}</p>
+    <div class="situation-card state-${stateClass}">
+      <h2 class="verdict-title">${esc(headline)}</h2>
+      ${matchedAddr}
+      ${compass}
+      <p class="verdict-explanation">${esc(explanation)}</p>
+      ${downwindCallout}
     </div>
-    ${matched}
-    ${compass}
-    ${readoutsHtml}
     ${checklistHtml}
     ${linksHtml}
     <div class="card">
