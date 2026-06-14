@@ -415,7 +415,17 @@
     font-weight: 500;
     letter-spacing: .02em;
   }
-  .situation-card .compass-wrapper { margin: 0 -.25rem 1rem; }
+  .situation-card .compass-wrapper {
+    margin: 0 0 1rem;
+    width: 100%;
+  }
+  /* SVG fills the card width fully — viewBox preserves aspect ratio */
+  .situation-card .compass-wrapper svg {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto;
+    display: block;
+  }
   .situation-card .verdict-explanation {
     margin: 0;
     font-size: .95rem;
@@ -807,34 +817,56 @@ function compassSVG(verdict) {
   }
 
   // ---- Polygon: rendered as a *region* (ellipse background + cluster of 🔥 emojis), not a point ----
+  // Two layouts:
+  //   - in_zone (user is inside the polygon): fire ring SURROUNDS the user at the center.
+  //     Larger ellipse covers both fire icons and the user. No "0 mi" distance label
+  //     (it's nonsensical — the user is inside it).
+  //   - otherwise: polygon at distance offset with distance/bearing pill below.
   let polygonEl = "";
   if (hasPolygon) {
-    const distMi = Math.min(nearest.distance_mi, MAX_MI);
-    const distPx = 54 + ((RING_PX - 70) * distMi) / MAX_MI;
-    const polyRad = toRad(nearest.bearing_to_polygon_deg);
-    const polyX = CENTER + distPx * Math.cos(polyRad);
-    const polyY = CENTER + distPx * Math.sin(polyRad);
+    const isInside = verdict.state === "in_zone" || nearest.distance_mi < 0.5;
 
-    // Cluster of fire emojis to convey "this is a region of fire risk", not one fire icon
-    const fireScatter = [
-      { dx: 0,   dy: 0,   sz: 30 },
-      { dx: -18, dy: -10, sz: 21 },
-      { dx: 19,  dy: -12, sz: 22 },
-      { dx: -10, dy: 16,  sz: 20 },
-      { dx: 16,  dy: 14,  sz: 19 },
-    ];
-    const fires = fireScatter.map(({dx, dy, sz}) =>
-      `<text x="${(polyX + dx).toFixed(1)}" y="${(polyY + dy).toFixed(1)}" text-anchor="middle" dy=".35em" font-size="${sz}">🔥</text>`
-    ).join("");
+    if (isInside) {
+      // Ring of fire icons around the center user position (6 fires at 60° intervals)
+      const ringRadius = 46;
+      const fires = [0, 60, 120, 180, 240, 300].map((angleDeg) => {
+        const rad = (angleDeg * Math.PI) / 180;
+        const fx = CENTER + ringRadius * Math.cos(rad);
+        const fy = CENTER + ringRadius * Math.sin(rad);
+        return `<text x="${fx.toFixed(1)}" y="${fy.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="22">🔥</text>`;
+      }).join("");
+      polygonEl = `
+        <ellipse cx="${CENTER}" cy="${CENTER}" rx="68" ry="60" class="compass-poly" stroke-width="3"/>
+        ${fires}
+      `;
+    } else {
+      // Polygon at distance offset, with distance/bearing pill label
+      const distMi = Math.min(nearest.distance_mi, MAX_MI);
+      const distPx = 54 + ((RING_PX - 70) * distMi) / MAX_MI;
+      const polyRad = toRad(nearest.bearing_to_polygon_deg);
+      const polyX = CENTER + distPx * Math.cos(polyRad);
+      const polyY = CENTER + distPx * Math.sin(polyRad);
 
-    polygonEl = `
-      <ellipse cx="${polyX.toFixed(1)}" cy="${polyY.toFixed(1)}" rx="42" ry="36" class="compass-poly" stroke-width="2.5"/>
-      ${fires}
-      <g transform="translate(${polyX.toFixed(1)},${(polyY + 58).toFixed(1)})">
-        <rect x="-58" y="-15" width="116" height="25" rx="12" class="compass-svg-bg" opacity="0.92"/>
-        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-poly-label">${Math.round(nearest.distance_mi)} mi ${esc(nearest.bearing_to_polygon_compass)}</text>
-      </g>
-    `;
+      const fireScatter = [
+        { dx: 0,   dy: 0,   sz: 30 },
+        { dx: -18, dy: -10, sz: 21 },
+        { dx: 19,  dy: -12, sz: 22 },
+        { dx: -10, dy: 16,  sz: 20 },
+        { dx: 16,  dy: 14,  sz: 19 },
+      ];
+      const fires = fireScatter.map(({dx, dy, sz}) =>
+        `<text x="${(polyX + dx).toFixed(1)}" y="${(polyY + dy).toFixed(1)}" text-anchor="middle" dy=".35em" font-size="${sz}">🔥</text>`
+      ).join("");
+
+      polygonEl = `
+        <ellipse cx="${polyX.toFixed(1)}" cy="${polyY.toFixed(1)}" rx="42" ry="36" class="compass-poly" stroke-width="2.5"/>
+        ${fires}
+        <g transform="translate(${polyX.toFixed(1)},${(polyY + 58).toFixed(1)})">
+          <rect x="-58" y="-15" width="116" height="25" rx="12" class="compass-svg-bg" opacity="0.92"/>
+          <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-poly-label">${Math.round(nearest.distance_mi)} mi ${esc(nearest.bearing_to_polygon_compass)}</text>
+        </g>
+      `;
+    }
   }
 
   // ---- User: 🏠 emoji, sized as an anchor not a focal point ----
