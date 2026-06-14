@@ -800,18 +800,20 @@ function compassSVG(verdict) {
     const labelX = startX + labelOffset * Math.cos(perp);
     const labelY = startY + labelOffset * Math.sin(perp);
 
-    // Label now carries BOTH direction and speed so the SVG is self-sufficient
-    // (no need to scroll to a separate readout). Width grows with content.
-    const windText = `winds ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak)} mph`;
-    const labelWidth = Math.max(140, windText.length * 7);
+    // Two-line label so direction+speed fits without overflowing the SVG edge
+    // when the wind start-point lands near the viewport border.
+    const windLine1 = `winds ${esc(wind.wind_from_compass)}`;
+    const windLine2 = `${Math.round(wind.wind_speed_mph_peak)} mph`;
+    const labelWidth = Math.max(100, Math.max(windLine1.length, windLine2.length) * 8.5);
     windEl = `
       <line x1="${startX.toFixed(1)}" y1="${startY.toFixed(1)}" x2="${baseCx.toFixed(1)}" y2="${baseCy.toFixed(1)}"
         class="compass-wind-line" stroke-width="4" stroke-linecap="round" stroke-dasharray="9 5"/>
       <polygon points="${endX.toFixed(1)},${endY.toFixed(1)} ${bLX.toFixed(1)},${bLY.toFixed(1)} ${bRX.toFixed(1)},${bRY.toFixed(1)}"
         class="compass-wind-head"/>
       <g transform="translate(${labelX.toFixed(1)},${labelY.toFixed(1)})">
-        <rect x="${(-labelWidth / 2).toFixed(1)}" y="-15" width="${labelWidth}" height="26" rx="13" class="compass-svg-bg" opacity="0.92"/>
-        <text x="0" y="3" text-anchor="middle" font-size="14" class="compass-wind-label">${windText}</text>
+        <rect x="${(-labelWidth / 2).toFixed(1)}" y="-22" width="${labelWidth}" height="44" rx="13" class="compass-svg-bg" opacity="0.92"/>
+        <text x="0" y="-3" text-anchor="middle" font-size="14" class="compass-wind-label">${windLine1}</text>
+        <text x="0" y="15" text-anchor="middle" font-size="14" class="compass-wind-label">${windLine2}</text>
       </g>
     `;
   }
