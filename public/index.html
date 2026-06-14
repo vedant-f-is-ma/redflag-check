@@ -13,12 +13,16 @@
 <meta property="og:description" content="Type your address. Find out if tonight's Red Flag Warning applies to you. Free, no signup.">
 <meta property="og:type" content="website">
 <script>
-// Inline theme init — runs before CSS to avoid flash of incorrect theme
+// Inline theme + font-size init — runs before CSS to avoid flash of incorrect settings
 (function() {
   try {
     var stored = localStorage.getItem("rfc-theme");
     var theme = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
     document.documentElement.setAttribute("data-theme", theme);
+    var fs = localStorage.getItem("rfc-font-size");
+    if (fs && fs !== "default") {
+      document.documentElement.setAttribute("data-font-size", fs);
+    }
   } catch (e) {}
 })();
 </script>
@@ -49,18 +53,34 @@
     --safe: #1e9c4a;
     --border: #d8d8d8;
   }
-  /* Theme toggle button in the header */
-  .theme-toggle {
+  /* Font-size scaling — toggles the root font-size; all rem-based sizes follow.
+     16px default → 18px medium → 20px large. Persisted in localStorage. */
+  html { font-size: 16px; }
+  html[data-font-size="medium"] { font-size: 18px; }
+  html[data-font-size="large"]  { font-size: 20px; }
+  @media (max-width: 480px) {
+    html { font-size: 15px; }
+    html[data-font-size="medium"] { font-size: 17px; }
+    html[data-font-size="large"]  { font-size: 19px; }
+  }
+
+  /* Theme + font-size toggle buttons in the top-right corner */
+  .toggle-cluster {
     position: absolute;
     top: 1rem;
     right: 1rem;
-    width: 38px;
-    height: 38px;
+    display: flex;
+    gap: .4rem;
+    z-index: 10;
+  }
+  .ui-toggle {
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     border: 1px solid var(--border);
     background: var(--bg-card);
     color: var(--text);
-    font-size: 1.05rem;
+    font-size: 1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -68,12 +88,49 @@
     line-height: 1;
     padding: 0;
     transition: background 0.15s, border-color 0.15s;
-    z-index: 10;
+    font-family: inherit;
   }
-  .theme-toggle:hover { background: var(--bg-input); }
-  .theme-toggle:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
-  /* Ensure the container has positioning context for the absolute toggle */
+  .ui-toggle:hover { background: var(--bg-input); }
+  .ui-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .container { position: relative; }
+
+  /* Skip link for keyboard / screen-reader users — visible only on focus */
+  .skip-link {
+    position: absolute;
+    top: -100px;
+    left: 1rem;
+    background: var(--accent);
+    color: #1a0a02;
+    padding: .6rem 1rem;
+    border-radius: 6px;
+    font-weight: 700;
+    text-decoration: none;
+    z-index: 100;
+    transition: top 0.15s;
+  }
+  .skip-link:focus { top: 1rem; outline: 2px solid #fff; outline-offset: 2px; }
+
+  /* Screen-reader-only utility (visually hidden, still announced) */
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+  }
+
+  /* Universal focus indicators — keyboard users need to see where they are */
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* WCAG 2.1 AAA touch target: every tappable element ≥ 44×44 on mobile */
+  @media (max-width: 768px) {
+    button, .tab, a.secondary, .ui-toggle { min-height: 44px; }
+    a { min-height: 24px; display: inline-block; }
+  }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0;
@@ -358,12 +415,18 @@
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
 <div class="container">
-  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle light and dark mode" title="Toggle light/dark">
-    <span id="theme-toggle-icon">🌙</span>
-  </button>
+  <div class="toggle-cluster" role="group" aria-label="Display preferences">
+    <button class="ui-toggle" id="font-size-toggle" aria-label="Cycle font size" title="Change text size">
+      <span id="font-size-toggle-icon" aria-hidden="true">A</span>
+    </button>
+    <button class="ui-toggle" id="theme-toggle" aria-label="Toggle light and dark mode" title="Toggle light/dark">
+      <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
+    </button>
+  </div>
   <header>
-    <h1><span class="flag">🚩</span> East Bay Red Flag Check</h1>
+    <h1><span class="flag" aria-hidden="true">🚩</span> East Bay Red Flag Check</h1>
     <p class="sub">Type your address. Find out if tonight's Red Flag Warning applies to you, what to do, and your evacuation zone.</p>
     <p class="meta">Free · No signup · Sources: NWS + US Census + Genasys · Not affiliated with Alameda County</p>
   </header>
@@ -372,24 +435,25 @@
     <strong>Important during fire season:</strong> NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status. Keep a go-bag ready.
   </div>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="zone">Your address</button>
-    <button class="tab" data-tab="schools">Schools</button>
-    <button class="tab" data-tab="buddy">Buddy check</button>
+  <main id="main">
+  <div class="tabs" role="tablist" aria-label="Choose what to check">
+    <button class="tab active" data-tab="zone" role="tab" aria-selected="true" aria-controls="panel-zone" id="tab-zone" tabindex="0">Your address</button>
+    <button class="tab" data-tab="schools" role="tab" aria-selected="false" aria-controls="panel-schools" id="tab-schools" tabindex="-1">Schools</button>
+    <button class="tab" data-tab="buddy" role="tab" aria-selected="false" aria-controls="panel-buddy" id="tab-buddy" tabindex="-1">Buddy check</button>
   </div>
 
   <!-- ============================== ZONE TAB ============================== -->
-  <section class="panel active" id="panel-zone">
+  <section class="panel active" id="panel-zone" role="tabpanel" aria-labelledby="tab-zone">
     <div class="card">
       <label for="address-input">Enter an address in the Bay Area</label>
-      <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off">
+      <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words">
       <button class="primary" id="check-btn">Check this address</button>
     </div>
-    <div id="zone-result"></div>
+    <div id="zone-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
 
   <!-- ============================== SCHOOLS TAB ============================== -->
-  <section class="panel" id="panel-schools">
+  <section class="panel" id="panel-schools" role="tabpanel" aria-labelledby="tab-schools" hidden>
     <div class="card">
       <label for="school-select">Pick a school</label>
       <select id="school-select">
@@ -397,20 +461,21 @@
       </select>
       <button class="primary" id="school-btn">Check this school</button>
     </div>
-    <div id="school-result"></div>
+    <div id="school-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
 
   <!-- ============================== BUDDY TAB ============================== -->
-  <section class="panel" id="panel-buddy">
+  <section class="panel" id="panel-buddy" role="tabpanel" aria-labelledby="tab-buddy" hidden>
     <div class="card">
       <label for="buddy-name">Friend's name</label>
-      <input type="text" id="buddy-name" placeholder="e.g., Jane">
+      <input type="text" id="buddy-name" placeholder="e.g., Jane" autocomplete="off">
       <label for="buddy-address" style="margin-top:.75rem">Friend's address (optional, for zone lookup)</label>
-      <input type="text" id="buddy-address" placeholder="e.g., 12250 Skyline Blvd, Oakland">
+      <input type="text" id="buddy-address" placeholder="e.g., 12250 Skyline Blvd, Oakland" autocomplete="off">
       <button class="primary" id="buddy-btn">Make my buddy check</button>
     </div>
-    <div id="buddy-result"></div>
+    <div id="buddy-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
+  </main>
 
   <footer>
     Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
@@ -422,16 +487,69 @@
 <script type="module">
 const API = ""; // same-origin
 
-// Tab switching
-document.querySelectorAll(".tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("panel-" + btn.dataset.tab).classList.add("active");
-    if (window.va) window.va("event", { name: "tab_switched", data: { tab: btn.dataset.tab } });
+// Tab switching — full ARIA tablist pattern: aria-selected, roving tabindex,
+// hidden attribute on inactive panels, and arrow-key keyboard navigation.
+(function setupTabs() {
+  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+  const panels = Array.from(document.querySelectorAll('[role="tabpanel"]'));
+
+  function selectTab(targetBtn, { focus = false } = {}) {
+    tabs.forEach(b => {
+      const active = b === targetBtn;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-selected", active ? "true" : "false");
+      b.setAttribute("tabindex", active ? "0" : "-1");
+    });
+    panels.forEach(p => {
+      const active = p.id === "panel-" + targetBtn.dataset.tab;
+      p.classList.toggle("active", active);
+      if (active) p.removeAttribute("hidden"); else p.setAttribute("hidden", "");
+    });
+    if (focus) targetBtn.focus();
+    if (window.va) window.va("event", { name: "tab_switched", data: { tab: targetBtn.dataset.tab } });
+  }
+
+  tabs.forEach((btn, idx) => {
+    btn.addEventListener("click", () => selectTab(btn));
+    btn.addEventListener("keydown", (e) => {
+      let next = null;
+      if (e.key === "ArrowRight") next = tabs[(idx + 1) % tabs.length];
+      else if (e.key === "ArrowLeft") next = tabs[(idx - 1 + tabs.length) % tabs.length];
+      else if (e.key === "Home") next = tabs[0];
+      else if (e.key === "End") next = tabs[tabs.length - 1];
+      if (next) { e.preventDefault(); selectTab(next, { focus: true }); }
+    });
   });
-});
+})();
+
+// Font-size cycle: default → medium → large → default. Persists in localStorage.
+(function setupFontSize() {
+  const btn = document.getElementById("font-size-toggle");
+  const icon = document.getElementById("font-size-toggle-icon");
+  if (!btn || !icon) return;
+  const order = ["default", "medium", "large"];
+  const iconFor = { default: "A", medium: "A+", large: "A++" };
+  const labelFor = { default: "Default size — click for larger text", medium: "Medium size — click for largest text", large: "Largest size — click to reset" };
+
+  function apply(size) {
+    if (size === "default") document.documentElement.removeAttribute("data-font-size");
+    else document.documentElement.setAttribute("data-font-size", size);
+    icon.textContent = iconFor[size];
+    btn.setAttribute("aria-label", labelFor[size]);
+    btn.setAttribute("title", labelFor[size]);
+  }
+  // Initialize from what the inline head-script already applied
+  const current = document.documentElement.getAttribute("data-font-size") || "default";
+  apply(current);
+
+  btn.addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-font-size") || "default";
+    const next = order[(order.indexOf(cur) + 1) % order.length];
+    apply(next);
+    try { localStorage.setItem("rfc-font-size", next); } catch (e) {}
+    if (window.va) window.va("event", { name: "font_size_toggled", data: { size: next } });
+  });
+})();
 
 // ---------- Helpers ----------
 const $ = (s) => document.querySelector(s);
