@@ -434,20 +434,20 @@
   }
   /* SVG fills the card width fully — viewBox preserves aspect ratio */
   .situation-card .compass-wrapper svg,
-  .situation-card .geomap-wrapper svg {
+  .geomap-wrapper svg {
     width: 100% !important;
     max-width: 100% !important;
     height: auto;
     display: block;
   }
-  .situation-card .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
+  .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
   /* Zoom stepper sitting just above the map */
-  .situation-card .geomap-zoom { display: flex; align-items: center; justify-content: center; gap: .6rem; margin: 0 0 .55rem; }
+  .geomap-zoom { display: flex; align-items: center; justify-content: center; gap: .6rem; margin: 0 0 .55rem; }
   .geomap-zoom-btn { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
   .geomap-zoom-btn:hover:not(:disabled) { background: var(--bg-card); }
   .geomap-zoom-btn:disabled { opacity: .38; cursor: default; }
   .geomap-zoom-label { min-width: 62px; text-align: center; font-weight: 700; font-size: .92rem; color: var(--text-dim); letter-spacing: .02em; }
-  .situation-card .geomap-img { width: 100%; height: auto; display: block; border-radius: 14px; }
+  .geomap-img { width: 100%; height: auto; display: block; border-radius: 14px; }
   /* Map image + wind-arrow overlay (the arrow is drawn over the real basemap) */
   .geomap-mapwrap { position: relative; width: 100%; line-height: 0; border-radius: 14px; overflow: hidden; }
   .geomap-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -458,14 +458,14 @@
   .mapwind-label { fill: #0b3a66; font-weight: 800; letter-spacing: .02em; }
   .mapfire-label { fill: #a31010; font-weight: 800; letter-spacing: .02em; }
   @media (prefers-reduced-motion: reduce) { .mapwind-line { animation: none; } }
-  .situation-card .geomap-caption {
+  .geomap-caption {
     margin: .4rem 0 0;
     font-size: .76rem;
     color: var(--text-dim);
     line-height: 1.45;
     text-align: center;
   }
-  .situation-card .geomap-caption a { color: var(--accent); white-space: nowrap; }
+  .geomap-caption a { color: var(--accent); white-space: nowrap; }
   .situation-card .verdict-explanation {
     margin: 0;
     font-size: .95rem;
@@ -1243,6 +1243,25 @@ function upgradeGeoMap(data, container, zoomLevel) {
   })();
 }
 
+// Shared geo-map block (zoom stepper + canvas + caption). Used by both the address
+// result and the school result — a school is just a named lat/lng with a warning nearby.
+function geomapBlock(verdict, location, fullMapLink, place) {
+  const np = verdict && verdict.nearest_polygon;
+  const ringPresent = np && Array.isArray(np.ring) && np.ring.length >= 3 && isFinite(np.distance_mi) && np.distance_mi <= 60;
+  if (!ringPresent) return "";
+  const link = fullMapLink || "https://www.watchduty.org";
+  return `
+      <div class="geomap-wrapper">
+        <div class="geomap-zoom" role="group" aria-label="Map zoom">
+          <button type="button" class="geomap-zoom-btn" data-zdir="out" aria-label="Zoom out">−</button>
+          <span class="geomap-zoom-label">Area</span>
+          <button type="button" class="geomap-zoom-btn" data-zdir="in" aria-label="Zoom in">+</button>
+        </div>
+        <div class="geomap-canvas">${geoMapSVG(verdict, location, getMapZoom())}</div>
+        <p class="geomap-caption">Active warning area near ${place || "your address"}. <a href="${esc(link)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
+      </div>`;
+}
+
 function renderZoneResult(d) {
   const v = d.verdict || {};
   const state = v.state || "safe_tonight";
@@ -1254,21 +1273,8 @@ function renderZoneResult(d) {
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
 
-  // Geo-map (real polygon shape) — show when there's an actual ring and the warning
-  // is close enough that drawing it to scale is useful (skip far statewide polygons).
-  const np = v.nearest_polygon;
-  const ringPresent = np && Array.isArray(np.ring) && np.ring.length >= 3 && isFinite(np.distance_mi) && np.distance_mi <= 60;
-  const fullMapLink = (d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty)) || "https://www.watchduty.org";
-  const geomap = ringPresent ? `
-      <div class="geomap-wrapper">
-        <div class="geomap-zoom" role="group" aria-label="Map zoom">
-          <button type="button" class="geomap-zoom-btn" data-zdir="out" aria-label="Zoom out">−</button>
-          <span class="geomap-zoom-label">Area</span>
-          <button type="button" class="geomap-zoom-btn" data-zdir="in" aria-label="Zoom in">+</button>
-        </div>
-        <div class="geomap-canvas">${geoMapSVG(v, d.location, getMapZoom())}</div>
-        <p class="geomap-caption">Active warning area near your address. <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
-      </div>` : "";
+  // Geo-map (real polygon shape + wind/fire overlay) — shared with the school result.
+  const geomap = geomapBlock(v, d.location, d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty), "your address");
 
   // Matched address — small line beneath the verdict title
   const matchedAddr = d.location?.matched_address
@@ -1484,6 +1490,8 @@ $("#school-btn").addEventListener("click", async () => {
     }
     const data = await r.json();
     out.innerHTML = renderSchoolResult(data);
+    upgradeGeoMap(data, out, getMapZoom());
+    bindMapZoom(out, data);
     track("school_checked", {
       id,
       district: data.school?.district,
@@ -1519,6 +1527,9 @@ function renderSchoolResult(d) {
   const emailBody = `Sharing this single-page status check for ${s.name} during tonight's Red Flag Warning.\n\nRecommendation: ${lvlLabel}.\nRationale: ${d.decision_recommendation.rationale}\nSource: ${d.decision_recommendation.source}.\n\nFull data: ${location.origin}/api/v1/school-status?id=${s.id}\n\nThis is informational only; final decisions rest with district leadership.`;
   const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
+  // A school is a named lat/lng — show the same geo-map + wind/fire overlay as an address.
+  const schoolMap = geomapBlock(d.verdict, d.location, null, esc(s.name));
+
   return `
     <div class="verdict ${lvlClass}">
       <h2>${lvlLabel}</h2>
@@ -1528,6 +1539,7 @@ function renderSchoolResult(d) {
       <h3 style="margin:0 0 .3rem">${esc(s.name)}</h3>
       <p class="small">${esc(s.address)}, ${esc(s.city)} · ${esc(s.district)}</p>
     </div>
+    ${schoolMap ? `<div class="card">${schoolMap}</div>` : ""}
     ${stats}
     <div class="card">
       <h3 style="margin:0 0 .6rem">CIF AQI thresholds (reference)</h3>

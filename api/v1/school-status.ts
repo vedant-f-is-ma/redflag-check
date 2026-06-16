@@ -6,6 +6,9 @@
 import {
   fetchAlertsAtPoint,
   fetchForecastSummary,
+  fetchActiveRedFlagPolygons,
+  classifyVerdict,
+  buildStaticMapUrls,
   jsonResponse,
   errorResponse,
 } from "../_lib";
@@ -68,9 +71,10 @@ export default async function handler(req: Request): Promise<Response> {
   const school = findSchool(id);
   if (!school) return errorResponse(`Unknown school id: ${id}`, 404);
 
-  const [alerts, forecast] = await Promise.all([
+  const [alerts, forecast, statePolygons] = await Promise.all([
     fetchAlertsAtPoint(school.lat, school.lng),
     fetchForecastSummary(school.lat, school.lng),
+    fetchActiveRedFlagPolygons("CA"),
   ]);
 
   const redFlag = alerts.filter((a) => a.event === "Red Flag Warning");
@@ -82,8 +86,16 @@ export default async function handler(req: Request): Promise<Response> {
 
   const decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent);
 
+  // A school is just a named lat/lng, so compute the same 4-state verdict + map the
+  // address path does — the result can then show the geo-map + wind/fire overlay.
+  const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast);
+  const map_views = buildStaticMapUrls(school.lat, school.lng, verdict.nearest_polygon);
+
   return jsonResponse({
     school,
+    location: { lat: school.lat, lng: school.lng, matched_address: `${school.name}, ${school.city}` },
+    verdict,
+    map_views,
     in_red_flag_zone: inZone,
     alerts: redFlag,
     forecast: forecast?.tonight ?? null,
