@@ -589,6 +589,9 @@
     <button class="ui-toggle" id="theme-toggle" aria-label="Toggle light and dark mode" title="Toggle light/dark">
       <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
     </button>
+    <button class="ui-toggle" id="map-zoom-toggle" aria-label="Map zoom level" title="Map zoom level">
+      <span id="map-zoom-toggle-icon" aria-hidden="true">⊙</span>
+    </button>
   </div>
   <header>
     <h1><span class="flag" aria-hidden="true">🚩</span> East Bay Red Flag Check</h1>
@@ -716,9 +719,51 @@ const API = ""; // same-origin
   });
 })();
 
+// Map zoom cycle: area → wide → close → area. Persists in localStorage. When changed,
+// re-renders the map currently on screen (SVG + the static-image upgrade) in place.
+(function setupMapZoom() {
+  const btn = document.getElementById("map-zoom-toggle");
+  const icon = document.getElementById("map-zoom-toggle-icon");
+  if (!btn || !icon) return;
+  const order = ["area", "wide", "close"];
+  const iconFor = { area: "⊙", wide: "⊖", close: "⊕" };
+  const labelFor = {
+    area: "Map zoom: area view — click to zoom out",
+    wide: "Map zoom: wide view — click to zoom in",
+    close: "Map zoom: close view — click to reset",
+  };
+  function apply(level) {
+    icon.textContent = iconFor[level];
+    btn.setAttribute("aria-label", labelFor[level]);
+    btn.setAttribute("title", labelFor[level]);
+  }
+  apply(getMapZoom());
+
+  btn.addEventListener("click", () => {
+    const next = order[(order.indexOf(getMapZoom()) + 1) % order.length];
+    try { localStorage.setItem("rfc-map-zoom", next); } catch (e) {}
+    apply(next);
+    if (window.va) window.va("event", { name: "map_zoom_toggled", data: { level: next } });
+    const data = window.__lastZoneData, container = window.__lastZoneContainer;
+    if (data && container) {
+      const canvas = container.querySelector(".geomap-canvas");
+      if (canvas) {
+        canvas.innerHTML = geoMapSVG(data.verdict, data.location, next);
+        upgradeGeoMap(data, container, next);
+      }
+    }
+  });
+})();
+
 // ---------- Helpers ----------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+// Current map zoom level (persisted): "wide" | "area" | "close". Default "area".
+function getMapZoom() {
+  try { const l = localStorage.getItem("rfc-map-zoom"); return (l === "wide" || l === "close") ? l : "area"; }
+  catch (e) { return "area"; }
+}
 
 // Vercel Analytics — track real user actions, not just page views
 function track(event, props) {
@@ -750,7 +795,8 @@ $("#check-btn").addEventListener("click", async () => {
     const data = await res.json();
     out.innerHTML = renderZoneResult(data);
     bindShare(addr, data);
-    upgradeGeoMap(data, out);
+    window.__lastZoneData = data; window.__lastZoneContainer = out;
+    upgradeGeoMap(data, out, getMapZoom());
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
       category: data.action_checklist?.category,
@@ -933,7 +979,7 @@ function niceMiles(x) {
 // north-up). No map tiles, so it always renders even if a tile server is down —
 // the one failure mode we refuse to ship during an emergency. This is the
 // "real geography" view that complements the compass (direction/wind) abstraction.
-function geoMapSVG(verdict, location) {
+function geoMapSVG(verdict, location, zoomLevel) {
   const nearest = verdict && verdict.nearest_polygon;
   const ring = nearest && Array.isArray(nearest.ring) && nearest.ring.length >= 3 ? nearest.ring : null;
   if (!ring || !location || !isFinite(location.lat) || !isFinite(location.lng)) return "";
@@ -948,8 +994,10 @@ function geoMapSVG(verdict, location) {
     if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }
   // Pad 12% with a floor so a tiny bbox still has extent.
-  const padLat = Math.max((maxLat - minLat) * 0.12, 0.01);
-  const padLng = Math.max((maxLng - minLng) * 0.12, 0.01);
+  // Zoom level adjusts how much context around the polygon+user we show.
+  const zf = zoomLevel === "wide" ? 2.2 : zoomLevel === "close" ? 0.4 : 1.0;
+  const padLat = Math.max((maxLat - minLat) * 0.12 * zf, 0.01);
+  const padLng = Math.max((maxLng - minLng) * 0.12 * zf, 0.01);
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
 
   const centerLat = (minLat + maxLat) / 2;
@@ -1012,8 +1060,9 @@ function geoMapSVG(verdict, location) {
 // try to UPGRADE to the actual basemap — each URL in order (failover across providers).
 // On success, swap the SVG for the image; if every URL errors or is too slow (network
 // under load), keep the SVG. The SVG is always the final, always-renders fallback.
-function upgradeGeoMap(data, container) {
-  const urls = data && data.map_image_urls;
+function upgradeGeoMap(data, container, zoomLevel) {
+  const views = data && data.map_views;
+  const urls = views && (views[zoomLevel] || views.area);
   if (!Array.isArray(urls) || !urls.length) return;
   const canvas = (container || document).querySelector(".geomap-canvas");
   if (!canvas) return;
@@ -1056,7 +1105,7 @@ function renderZoneResult(d) {
   const fullMapLink = (d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty)) || "https://www.watchduty.org";
   const geomap = ringPresent ? `
       <div class="geomap-wrapper">
-        <div class="geomap-canvas">${geoMapSVG(v, d.location)}</div>
+        <div class="geomap-canvas">${geoMapSVG(v, d.location, getMapZoom())}</div>
         <p class="geomap-caption">Active warning area near your address. <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
       </div>` : "";
 
@@ -1428,6 +1477,8 @@ function renderBuddyResult(d) {
   if (out) {
     out.innerHTML = renderZoneResult(data);
     bindShare("demo address", data);
+    window.__lastZoneData = data; window.__lastZoneContainer = out;
+    upgradeGeoMap(data, out, getMapZoom());
   }
   // Show a small "DEMO" badge so it's clear this isn't real data
   const banner = document.createElement("div");

@@ -614,11 +614,18 @@ function fitZoom(latMin: number, latMax: number, lngMin: number, lngMax: number,
   return Math.max(3, Math.min(16, z));
 }
 
-export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): string[] {
+export interface MapViews {
+  wide: string[];   // zoomed out — more regional context
+  area: string[];   // default — the warning zone + your location, framed
+  close: string[];  // zoomed in on your address — neighborhood detail
+}
+
+export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): MapViews | null {
   const geoapifyKey = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
+  if (!geoapifyKey) return null;                        // no provider key -> client keeps the SVG
   // Only draw when there's an actual polygon close enough to be useful (mirrors the SVG gate).
-  if (!nearest || !Array.isArray(nearest.ring) || nearest.ring.length < 3) return [];
-  if (!isFinite(nearest.distance_mi) || nearest.distance_mi > 60) return [];
+  if (!nearest || !Array.isArray(nearest.ring) || nearest.ring.length < 3) return null;
+  if (!isFinite(nearest.distance_mi) || nearest.distance_mi > 60) return null;
 
   const ring = simplifyRing(nearest.ring, 80); // keep the URL short enough for <img src>
 
@@ -628,31 +635,40 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
     if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }
-  const padLat = Math.max((maxLat - minLat) * 0.18, 0.01);
-  const padLng = Math.max((maxLng - minLng) * 0.18, 0.01);
+  // Guarantee the user pin keeps breathing room from every edge so it never clips —
+  // extra on top because the material pin's body extends UP (north) from its tip.
+  const spanLat0 = (maxLat - minLat) || 0.02;
+  const spanLng0 = (maxLng - minLng) || 0.02;
+  minLat = Math.min(minLat, userLat - spanLat0 * 0.20);
+  maxLat = Math.max(maxLat, userLat + spanLat0 * 0.32);
+  minLng = Math.min(minLng, userLng - spanLng0 * 0.22);
+  maxLng = Math.max(maxLng, userLng + spanLng0 * 0.22);
+
+  const padLat = Math.max((maxLat - minLat) * 0.12, 0.01);
+  const padLng = Math.max((maxLng - minLng) * 0.12, 0.01);
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
 
   const W = 640, H = 420;
   const centerLng = (minLng + maxLng) / 2;
   const centerLat = (minLat + maxLat) / 2;
-  const zoom = fitZoom(minLat, maxLat, minLng, maxLng, W, H);
-
-  const urls: string[] = [];
+  const fit = fitZoom(minLat, maxLat, minLng, maxLng, W, H);
 
   // --- Geoapify (light/minimal style, free tier, no card) ---
-  if (geoapifyKey) {
-    const polyCoords = ring.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(",");
-    const geometry = `polygon:${polyCoords};linecolor:%23d7261a;linewidth:3;fillcolor:%23ff3b30;fillopacity:0.12`;
-    const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
-    urls.push(
-      `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
-      `&width=${W}&height=${H}&center=lonlat:${centerLng.toFixed(5)},${centerLat.toFixed(5)}` +
-      `&zoom=${zoom.toFixed(2)}&geometry=${geometry}&marker=${marker}&apiKey=${geoapifyKey}`
-    );
-  }
+  const polyCoords = ring.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(",");
+  const geometry = `polygon:${polyCoords};linecolor:%23d7261a;linewidth:3;fillcolor:%23ff3b30;fillopacity:0.12`;
+  const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
+  const geoapify = (cLng: number, cLat: number, z: number) =>
+    `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
+    `&width=${W}&height=${H}&center=lonlat:${cLng.toFixed(5)},${cLat.toFixed(5)}` +
+    `&zoom=${z.toFixed(2)}&geometry=${geometry}&marker=${marker}&apiKey=${geoapifyKey}`;
 
-  // Future providers (Mapbox, etc.) append here in priority order for failover.
-  return urls;
+  // Three zoom views. Each is an array so additional providers can be appended
+  // for failover (first that loads wins). "close" centers on the address.
+  return {
+    wide:  [geoapify(centerLng, centerLat, Math.max(3, fit - 1))],
+    area:  [geoapify(centerLng, centerLat, fit)],
+    close: [geoapify(userLng, userLat, Math.min(16, fit + 2.5))],
+  };
 }
 
 // ---------------------------------------------------------------------------

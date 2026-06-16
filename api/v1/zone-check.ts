@@ -89,9 +89,10 @@ export default async function handler(req: Request): Promise<Response> {
     },
     // NEW: the 4-state verdict — clients should prefer this over `in_red_flag_zone` for UI rendering
     verdict,
-    // Ordered static-map image URLs (real basemap + polygon overlay) the client can
-    // upgrade to from the SVG. Empty unless a map provider key is configured.
-    map_image_urls: buildStaticMapUrls(lat, lng, verdict.nearest_polygon),
+    // Static-map image URLs (real basemap + polygon overlay) the client can upgrade
+    // to from the SVG, at three zoom levels {wide, area, close}, each an ordered
+    // failover list. null unless a map provider key is configured + geometry exists.
+    map_views: buildStaticMapUrls(lat, lng, verdict.nearest_polygon),
     // Legacy fields preserved for any existing integrators
     in_red_flag_zone: inZone,
     alerts: redFlagAlerts,
