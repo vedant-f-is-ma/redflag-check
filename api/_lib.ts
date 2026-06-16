@@ -329,6 +329,22 @@ export interface NearestPolygonInfo {
   bearing_to_polygon_compass: string;    // e.g. "NE"
   nearest_lat: number;                   // closest point on polygon to user
   nearest_lng: number;
+  // Outer ring of the nearest polygon as [lng, lat] pairs (GeoJSON order), lightly
+  // simplified for payload size. Lets clients draw the ACTUAL warning-area shape
+  // (the geo-map view) instead of only a distance/bearing abstraction.
+  ring: number[][];
+}
+
+// Cap a ring's vertex count for payload size while preserving overall shape.
+// Naive every-k decimation is fine for a display outline (always keeps first/last).
+export function simplifyRing(ring: number[][], maxPoints = 160): number[][] {
+  if (ring.length <= maxPoints) return ring;
+  const step = Math.ceil(ring.length / maxPoints);
+  const out: number[][] = [];
+  for (let i = 0; i < ring.length; i += step) out.push(ring[i]);
+  const last = ring[ring.length - 1];
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
 }
 
 export interface WindVector {
@@ -397,6 +413,7 @@ export function classifyVerdict(
           bearing_to_polygon_compass: bearingToCompass(bearing),
           nearest_lat: r.nearest_lat,
           nearest_lng: r.nearest_lng,
+          ring: simplifyRing(ring),
         };
       }
     }

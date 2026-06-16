@@ -154,6 +154,39 @@ export const SCHOOLS: School[] = [
     lng: -121.9136,
     zone_class: "ridge",
   },
+  // Lamorinda (Contra Costa County, Acalanes Union HSD) — canyon/WUI terrain
+  // downwind of east-Contra-Costa ignition risk. Added after Fire Safe
+  // Moraga-Orinda ED Rob Schroeder asked for local school coverage (2026-06-16).
+  {
+    id: "campolindo-high",
+    name: "Campolindo High School",
+    district: "Acalanes Union High",
+    address: "300 Moraga Rd",
+    city: "Moraga",
+    lat: 37.8663,
+    lng: -122.1271,
+    zone_class: "hills",
+  },
+  {
+    id: "miramonte-high",
+    name: "Miramonte High School",
+    district: "Acalanes Union High",
+    address: "750 Moraga Way",
+    city: "Orinda",
+    lat: 37.8426,
+    lng: -122.145,
+    zone_class: "hills",
+  },
+  {
+    id: "acalanes-high",
+    name: "Acalanes High School",
+    district: "Acalanes Union High",
+    address: "1200 Pleasant Hill Rd",
+    city: "Lafayette",
+    lat: 37.9045,
+    lng: -122.0974,
+    zone_class: "hills",
+  },
 ];
 
 export function findSchool(id: string): School | undefined {

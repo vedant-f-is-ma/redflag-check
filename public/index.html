@@ -342,6 +342,18 @@
   .compass-you-dot { fill: var(--accent); stroke: var(--compass-text-strong); }
   .compass-you-label { fill: var(--compass-text-strong); font-weight: 900; letter-spacing: .08em; }
 
+  /* Geo-map: the real-geography view. Draws the actual NWS warning polygon outline
+     + the user's location + a scale bar, projected from lat/lng. No tiles, so it
+     always renders (the failure mode we won't ship in an emergency). Colors reuse
+     the compass variables so it follows light/dark. */
+  .geomap-poly { fill: var(--compass-poly-fill); stroke: var(--compass-poly-stroke); stroke-width: 2; stroke-linejoin: round; }
+  .geomap-user-dot { fill: var(--accent); stroke: var(--compass-text-strong); stroke-width: 2; }
+  .geomap-user-label { fill: var(--compass-text-strong); font-weight: 900; letter-spacing: .06em; }
+  .geomap-scale-line { stroke: var(--compass-cardinal); stroke-width: 2.5; stroke-linecap: round; }
+  .geomap-scale-label { fill: var(--compass-cardinal); font-weight: 700; }
+  .geomap-n-label { fill: var(--compass-cardinal); font-weight: 800; }
+  .geomap-n-arrow { fill: var(--compass-cardinal-anchor); }
+
   /* Wind animation: dashes flow along the line in the direction of wind;
      arrowhead breathes gently. Both stop for users with prefers-reduced-motion. */
   @keyframes wind-flow {
@@ -420,12 +432,22 @@
     width: 100%;
   }
   /* SVG fills the card width fully — viewBox preserves aspect ratio */
-  .situation-card .compass-wrapper svg {
+  .situation-card .compass-wrapper svg,
+  .situation-card .geomap-wrapper svg {
     width: 100% !important;
     max-width: 100% !important;
     height: auto;
     display: block;
   }
+  .situation-card .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
+  .situation-card .geomap-caption {
+    margin: .4rem 0 0;
+    font-size: .76rem;
+    color: var(--text-dim);
+    line-height: 1.45;
+    text-align: center;
+  }
+  .situation-card .geomap-caption a { color: var(--accent); white-space: nowrap; }
   .situation-card .verdict-explanation {
     margin: 0;
     font-size: .95rem;
@@ -896,6 +918,93 @@ function compassSVG(verdict) {
   `;
 }
 
+// Pick a round number ≤ x for the scale-bar length.
+function niceMiles(x) {
+  const steps = [0.25, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 50, 75];
+  let best = steps[0];
+  for (const s of steps) if (s <= x) best = s;
+  return best;
+}
+
+// SVG geo-map: draws the ACTUAL nearest Red Flag Warning polygon outline + the
+// user's location + a scale bar, projected from real lat/lng (equirectangular,
+// north-up). No map tiles, so it always renders even if a tile server is down —
+// the one failure mode we refuse to ship during an emergency. This is the
+// "real geography" view that complements the compass (direction/wind) abstraction.
+function geoMapSVG(verdict, location) {
+  const nearest = verdict && verdict.nearest_polygon;
+  const ring = nearest && Array.isArray(nearest.ring) && nearest.ring.length >= 3 ? nearest.ring : null;
+  if (!ring || !location || !isFinite(location.lat) || !isFinite(location.lng)) return "";
+
+  const uLat = location.lat, uLng = location.lng;
+
+  // Bounding box over the polygon ring + the user point.
+  let minLat = uLat, maxLat = uLat, minLng = uLng, maxLng = uLng;
+  for (const pt of ring) {
+    const lng = pt[0], lat = pt[1];
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+  }
+  // Pad 12% with a floor so a tiny bbox still has extent.
+  const padLat = Math.max((maxLat - minLat) * 0.12, 0.01);
+  const padLng = Math.max((maxLng - minLng) * 0.12, 0.01);
+  minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
+
+  const centerLat = (minLat + maxLat) / 2;
+  const cosC = Math.cos(centerLat * Math.PI / 180);
+  const worldW = (maxLng - minLng) * cosC;   // east-west, scaled degrees
+  const worldH = (maxLat - minLat);          // north-south, degrees
+  if (!(worldW > 0) || !(worldH > 0)) return "";
+
+  const VW = 340, VHmax = 440, pad = 16;
+  const availW = VW - 2 * pad, availHmax = VHmax - 2 * pad;
+  const scale = Math.min(availW / worldW, availHmax / worldH); // px per scaled-degree
+  const drawW = worldW * scale, drawH = worldH * scale;
+  const VH = drawH + 2 * pad;
+  const offX = pad + (availW - drawW) / 2;
+  const offY = pad;
+  const DEG2MI = 69.0;
+
+  const projX = (lng) => offX + ((lng - minLng) * cosC) * scale;
+  const projY = (lat) => offY + (maxLat - lat) * scale;
+
+  // Polygon path + centroid (for the 🔥 marker).
+  let dPath = "", cLatSum = 0, cLngSum = 0;
+  ring.forEach((pt, i) => {
+    dPath += (i === 0 ? "M" : "L") + projX(pt[0]).toFixed(1) + " " + projY(pt[1]).toFixed(1) + " ";
+    cLngSum += pt[0]; cLatSum += pt[1];
+  });
+  dPath += "Z";
+  const cx = projX(cLngSum / ring.length), cy = projY(cLatSum / ring.length);
+  const ux = projX(uLng), uy = projY(uLat);
+
+  // Scale bar: a round mileage ~30% of the width.
+  const miPerPx = DEG2MI / scale;
+  const barMi = niceMiles(availW * 0.30 * miPerPx);
+  const barPx = (barMi / DEG2MI) * scale;
+  const barY = VH - 11, barX0 = pad, barX1 = pad + barPx;
+
+  const ariaLabel = "Map of the active Red Flag Warning area near your address, drawn from the official NWS polygon. Your location is marked YOU. Scale bar shows " + barMi + " miles.";
+
+  return `
+    <svg viewBox="0 0 ${VW} ${VH.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" style="max-width:${VW}px;width:100%;display:block;margin:0 auto;" role="img" aria-label="${esc(ariaLabel)}">
+      <rect width="${VW}" height="${VH.toFixed(0)}" class="compass-svg-bg" rx="14"/>
+      <path d="${dPath.trim()}" class="geomap-poly"/>
+      <text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="20">🔥</text>
+      <g transform="translate(${VW - 24}, 18)">
+        <path d="M0,-6 L5,6 L0,2 L-5,6 Z" class="geomap-n-arrow"/>
+        <text x="0" y="20" text-anchor="middle" font-size="12" class="geomap-n-label">N</text>
+      </g>
+      <circle cx="${ux.toFixed(1)}" cy="${uy.toFixed(1)}" r="7" class="geomap-user-dot"/>
+      <text x="${ux.toFixed(1)}" y="${(uy - 12).toFixed(1)}" text-anchor="middle" font-size="11" class="geomap-user-label">YOU</text>
+      <line x1="${barX0}" y1="${barY}" x2="${barX1.toFixed(1)}" y2="${barY}" class="geomap-scale-line"/>
+      <line x1="${barX0}" y1="${barY - 4}" x2="${barX0}" y2="${barY + 4}" class="geomap-scale-line"/>
+      <line x1="${barX1.toFixed(1)}" y1="${barY - 4}" x2="${barX1.toFixed(1)}" y2="${(barY + 4)}" class="geomap-scale-line"/>
+      <text x="${(barX1 + 6).toFixed(1)}" y="${(barY + 4).toFixed(1)}" font-size="12" class="geomap-scale-label">${barMi} mi</text>
+    </svg>
+  `;
+}
+
 function renderZoneResult(d) {
   const v = d.verdict || {};
   const state = v.state || "safe_tonight";
@@ -906,6 +1015,17 @@ function renderZoneResult(d) {
   // Compass — always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
+
+  // Geo-map (real polygon shape) — show when there's an actual ring and the warning
+  // is close enough that drawing it to scale is useful (skip far statewide polygons).
+  const np = v.nearest_polygon;
+  const ringPresent = np && Array.isArray(np.ring) && np.ring.length >= 3 && isFinite(np.distance_mi) && np.distance_mi <= 60;
+  const fullMapLink = (d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty)) || "https://www.watchduty.org";
+  const geomap = ringPresent ? `
+      <div class="geomap-wrapper">
+        ${geoMapSVG(v, d.location)}
+        <p class="geomap-caption">The actual NWS warning-area shape, drawn to scale around your address. Not a street map — <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">open a full street map ↗</a></p>
+      </div>` : "";
 
   // Matched address — small line beneath the verdict title
   const matchedAddr = d.location?.matched_address
@@ -951,6 +1071,7 @@ function renderZoneResult(d) {
       <h2 class="verdict-title">${esc(headline)}</h2>
       ${matchedAddr}
       ${compass}
+      ${geomap}
       <p class="verdict-explanation">${esc(explanation)}</p>
       ${downwindCallout}
     </div>
@@ -967,6 +1088,31 @@ function renderZoneResult(d) {
 
 // Demo mode: ?demo=in_zone|downwind_threat|adjacent|safe_tonight
 // Lets you preview all 4 verdict states without waiting for a real warning.
+// Synthetic warning-area ring for demo mode (so ?demo= states show the geo-map).
+// Builds an irregular blob NE of the demo user, sized/placed by state.
+function demoRing(state) {
+  const uLat = 37.7, uLng = -122.0, DEG = 69.0;
+  const distMi = state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18;
+  const bearing = 45 * Math.PI / 180; // NE
+  let cLat, cLng, rMi;
+  if (state === "in_zone") {
+    cLat = uLat + 0.03; cLng = uLng + 0.035; rMi = 7;            // polygon surrounds the user
+  } else {
+    const centerDist = distMi + (state === "adjacent" ? 2.5 : 4);
+    cLat = uLat + (centerDist / DEG) * Math.cos(bearing);
+    cLng = uLng + (centerDist / (DEG * Math.cos(uLat * Math.PI / 180))) * Math.sin(bearing);
+    rMi = state === "safe_tonight" ? 6 : 3.5;
+  }
+  const cosLat = Math.cos(cLat * Math.PI / 180), pts = [], n = 14;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    const wob = 0.72 + 0.5 * Math.abs(Math.sin(2.5 * a + 1));    // irregular edge
+    pts.push([cLng + ((rMi * wob) / (DEG * cosLat)) * Math.cos(a), cLat + ((rMi * wob) / DEG) * Math.sin(a)]);
+  }
+  pts.push(pts[0].slice());
+  return pts;
+}
+
 function demoVerdict(state) {
   const wind = { wind_from_compass: "NE", wind_from_deg: 45, wind_to_compass: "SW", wind_to_deg: 225, wind_speed_mph_peak: 35 };
   const np = {
@@ -977,6 +1123,7 @@ function demoVerdict(state) {
     bearing_to_polygon_compass: "NE",
     nearest_lat: 37.78,
     nearest_lng: -122.18,
+    ring: demoRing(state),
   };
   const states = {
     in_zone: {
