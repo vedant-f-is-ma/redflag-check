@@ -621,7 +621,8 @@ export interface MapView {
 export interface MapViews {
   wide: MapView;    // zoomed out — more regional context
   area: MapView;    // default — the warning zone + your location
-  close: MapView;   // zoomed in on your address — neighborhood detail
+  close: MapView;   // street level
+  closer: MapView;  // block level — most zoomed in
 }
 
 export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): MapViews | null {
@@ -674,9 +675,10 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   // so the client draws a fire-direction indicator.
   const mk = (z: number): MapView => ({ urls: [geoapify(z)], you_px: [W / 2, H / 2] });
   return {
-    wide:  mk(Math.max(3, fit - 1)),
-    area:  mk(fit),
-    close: mk(Math.min(18, Math.max(fit + 4, 16))),
+    wide:   mk(Math.max(3, fit - 1)),
+    area:   mk(fit),
+    close:  mk(Math.min(17, Math.max(fit + 4, 16))),   // street level
+    closer: mk(Math.min(19, Math.max(fit + 6, 18))),   // block level
   };
 }
 

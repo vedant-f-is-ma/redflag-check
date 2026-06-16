@@ -440,6 +440,12 @@
     display: block;
   }
   .situation-card .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
+  /* Zoom stepper sitting just above the map */
+  .situation-card .geomap-zoom { display: flex; align-items: center; justify-content: center; gap: .6rem; margin: 0 0 .55rem; }
+  .geomap-zoom-btn { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); font-size: 1.4rem; font-weight: 700; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .geomap-zoom-btn:hover:not(:disabled) { background: var(--bg-card); }
+  .geomap-zoom-btn:disabled { opacity: .38; cursor: default; }
+  .geomap-zoom-label { min-width: 62px; text-align: center; font-weight: 700; font-size: .92rem; color: var(--text-dim); letter-spacing: .02em; }
   .situation-card .geomap-img { width: 100%; height: auto; display: block; border-radius: 14px; }
   /* Map image + wind-arrow overlay (the arrow is drawn over the real basemap) */
   .geomap-mapwrap { position: relative; width: 100%; line-height: 0; border-radius: 14px; overflow: hidden; }
@@ -599,9 +605,6 @@
     <button class="ui-toggle" id="theme-toggle" aria-label="Toggle light and dark mode" title="Toggle light/dark">
       <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
     </button>
-    <button class="ui-toggle" id="map-zoom-toggle" aria-label="Map zoom level" title="Map zoom level">
-      <span id="map-zoom-toggle-icon" aria-hidden="true">🏘️</span>
-    </button>
   </div>
   <header>
     <h1><span class="flag" aria-hidden="true">🚩</span> East Bay Red Flag Check</h1>
@@ -729,49 +732,47 @@ const API = ""; // same-origin
   });
 })();
 
-// Map zoom cycle: area → wide → close → area. Persists in localStorage. When changed,
-// re-renders the map currently on screen (SVG + the static-image upgrade) in place.
-(function setupMapZoom() {
-  const btn = document.getElementById("map-zoom-toggle");
-  const icon = document.getElementById("map-zoom-toggle-icon");
-  if (!btn || !icon) return;
-  const order = ["area", "close", "wide"];
-  const iconFor = { area: "🏘️", close: "🔍", wide: "🗺️" };
-  const labelFor = {
-    area: "Map zoom: your area — tap to zoom in to the street",
-    close: "Map zoom: street level — tap to zoom out wide",
-    wide: "Map zoom: wide view — tap to reset to your area",
-  };
-  function apply(level) {
-    icon.textContent = iconFor[level];
-    btn.setAttribute("aria-label", labelFor[level]);
-    btn.setAttribute("title", labelFor[level]);
+// Zoom stepper that lives just above the map (so you can zoom without scrolling up to
+// the header). −/+ step through MAP_ZOOM_ORDER; persists the level; re-renders in place.
+function bindMapZoom(container, data) {
+  const wrap = container && container.querySelector(".geomap-wrapper");
+  if (!wrap) return;
+  const labelFor = { wide: "Wide", area: "Area", close: "Street", closer: "Block" };
+  const lblEl = wrap.querySelector(".geomap-zoom-label");
+  const btns = Array.from(wrap.querySelectorAll(".geomap-zoom-btn"));
+  const idx = () => Math.max(0, MAP_ZOOM_ORDER.indexOf(getMapZoom()));
+  function refresh() {
+    const i = idx();
+    if (lblEl) lblEl.textContent = labelFor[MAP_ZOOM_ORDER[i]];
+    btns.forEach((b) => {
+      const dir = b.getAttribute("data-zdir");
+      b.disabled = (dir === "out" && i === 0) || (dir === "in" && i === MAP_ZOOM_ORDER.length - 1);
+    });
   }
-  apply(getMapZoom());
-
-  btn.addEventListener("click", () => {
-    const next = order[(order.indexOf(getMapZoom()) + 1) % order.length];
-    try { localStorage.setItem("rfc-map-zoom", next); } catch (e) {}
-    apply(next);
-    if (window.va) window.va("event", { name: "map_zoom_toggled", data: { level: next } });
-    const data = window.__lastZoneData, container = window.__lastZoneContainer;
-    if (data && container) {
-      const canvas = container.querySelector(".geomap-canvas");
-      if (canvas) {
-        canvas.innerHTML = geoMapSVG(data.verdict, data.location, next);
-        upgradeGeoMap(data, container, next);
-      }
+  refresh();
+  btns.forEach((b) => b.addEventListener("click", () => {
+    const dir = b.getAttribute("data-zdir");
+    const i = Math.max(0, Math.min(MAP_ZOOM_ORDER.length - 1, idx() + (dir === "in" ? 1 : -1)));
+    const lvl = MAP_ZOOM_ORDER[i];
+    try { localStorage.setItem("rfc-map-zoom", lvl); } catch (e) {}
+    refresh();
+    if (window.va) window.va("event", { name: "map_zoom_changed", data: { level: lvl } });
+    const canvas = container.querySelector(".geomap-canvas");
+    if (canvas) {
+      canvas.innerHTML = geoMapSVG(data.verdict, data.location, lvl);
+      upgradeGeoMap(data, container, lvl);
     }
-  });
-})();
+  }));
+}
 
 // ---------- Helpers ----------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
 
-// Current map zoom level (persisted): "wide" | "area" | "close". Default "area".
+// Current map zoom level (persisted): "wide" | "area" | "close" | "closer". Default "area".
+const MAP_ZOOM_ORDER = ["wide", "area", "close", "closer"];
 function getMapZoom() {
-  try { const l = localStorage.getItem("rfc-map-zoom"); return (l === "wide" || l === "close") ? l : "area"; }
+  try { const l = localStorage.getItem("rfc-map-zoom"); return MAP_ZOOM_ORDER.indexOf(l) >= 0 ? l : "area"; }
   catch (e) { return "area"; }
 }
 
@@ -805,8 +806,8 @@ $("#check-btn").addEventListener("click", async () => {
     const data = await res.json();
     out.innerHTML = renderZoneResult(data);
     bindShare(addr, data);
-    window.__lastZoneData = data; window.__lastZoneContainer = out;
     upgradeGeoMap(data, out, getMapZoom());
+    bindMapZoom(out, data);
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
       category: data.action_checklist?.category,
@@ -1005,7 +1006,7 @@ function geoMapSVG(verdict, location, zoomLevel) {
   }
   // Pad 12% with a floor so a tiny bbox still has extent.
   // Zoom level adjusts how much context around the polygon+user we show.
-  const zf = zoomLevel === "wide" ? 2.2 : zoomLevel === "close" ? 0.4 : 1.0;
+  const zf = zoomLevel === "wide" ? 2.2 : zoomLevel === "close" ? 0.4 : zoomLevel === "closer" ? 0.22 : 1.0;
   const padLat = Math.max((maxLat - minLat) * 0.12 * zf, 0.01);
   const padLng = Math.max((maxLng - minLng) * 0.12 * zf, 0.01);
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
@@ -1124,8 +1125,8 @@ function upgradeGeoMap(data, container, zoomLevel) {
   const view = views[zoomLevel] || views.area;
   const urls = view && view.urls;
   if (!Array.isArray(urls) || !urls.length) return;
-  // Preload every zoom level's image so toggling is instant (no SVG flash).
-  ["wide", "area", "close"].forEach((l) => {
+  // Preload every zoom level's image so changing zoom is instant (no SVG flash).
+  MAP_ZOOM_ORDER.forEach((l) => {
     const v = views[l];
     if (v && v.urls && v.urls[0]) { const im = new Image(); im.src = v.urls[0]; }
   });
@@ -1181,6 +1182,11 @@ function renderZoneResult(d) {
   const fullMapLink = (d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty)) || "https://www.watchduty.org";
   const geomap = ringPresent ? `
       <div class="geomap-wrapper">
+        <div class="geomap-zoom" role="group" aria-label="Map zoom">
+          <button type="button" class="geomap-zoom-btn" data-zdir="out" aria-label="Zoom out">−</button>
+          <span class="geomap-zoom-label">Area</span>
+          <button type="button" class="geomap-zoom-btn" data-zdir="in" aria-label="Zoom in">+</button>
+        </div>
         <div class="geomap-canvas">${geoMapSVG(v, d.location, getMapZoom())}</div>
         <p class="geomap-caption">Active warning area near your address. <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
       </div>` : "";
@@ -1553,8 +1559,8 @@ function renderBuddyResult(d) {
   if (out) {
     out.innerHTML = renderZoneResult(data);
     bindShare("demo address", data);
-    window.__lastZoneData = data; window.__lastZoneContainer = out;
     upgradeGeoMap(data, out, getMapZoom());
+    bindMapZoom(out, data);
     // Demo has no server map_views (it's client-built). Fetch the real basemap for the
     // demo polygon so reviewers can see the actual map without an active warning.
     (async () => {
