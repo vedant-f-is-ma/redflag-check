@@ -446,8 +446,10 @@
   .geomap-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
   .mapwind-line { stroke: #0b63b0; animation: wind-flow 1.5s linear infinite; }
   .mapwind-head { fill: #0b63b0; }
-  .mapwind-pill { fill: rgba(255,255,255,0.9); stroke: rgba(0,0,0,0.14); stroke-width: 1; }
+  .mapfire-line { stroke: #d11; opacity: 0.85; }
+  .mapinfo-pill { fill: rgba(255,255,255,0.92); stroke: rgba(0,0,0,0.14); stroke-width: 1; }
   .mapwind-label { fill: #0b3a66; font-weight: 800; letter-spacing: .02em; }
+  .mapfire-label { fill: #a31010; font-weight: 800; letter-spacing: .02em; }
   @media (prefers-reduced-motion: reduce) { .mapwind-line { animation: none; } }
   .situation-card .geomap-caption {
     margin: .4rem 0 0;
@@ -598,7 +600,7 @@
       <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
     </button>
     <button class="ui-toggle" id="map-zoom-toggle" aria-label="Map zoom level" title="Map zoom level">
-      <span id="map-zoom-toggle-icon" aria-hidden="true">⊙</span>
+      <span id="map-zoom-toggle-icon" aria-hidden="true">🏘️</span>
     </button>
   </div>
   <header>
@@ -733,12 +735,12 @@ const API = ""; // same-origin
   const btn = document.getElementById("map-zoom-toggle");
   const icon = document.getElementById("map-zoom-toggle-icon");
   if (!btn || !icon) return;
-  const order = ["area", "wide", "close"];
-  const iconFor = { area: "⊙", wide: "⊖", close: "⊕" };
+  const order = ["area", "close", "wide"];
+  const iconFor = { area: "🏘️", close: "🔍", wide: "🗺️" };
   const labelFor = {
-    area: "Map zoom: area view — click to zoom out",
-    wide: "Map zoom: wide view — click to zoom in",
-    close: "Map zoom: close view — click to reset",
+    area: "Map zoom: your area — tap to zoom in to the street",
+    close: "Map zoom: street level — tap to zoom out wide",
+    wide: "Map zoom: wide view — tap to reset to your area",
   };
   function apply(level) {
     icon.textContent = iconFor[level];
@@ -1068,48 +1070,69 @@ function geoMapSVG(verdict, location, zoomLevel) {
 // try to UPGRADE to the actual basemap — each URL in order (failover across providers).
 // On success, swap the SVG for the image; if every URL errors or is too slow (network
 // under load), keep the SVG. The SVG is always the final, always-renders fallback.
-// Wind-direction arrow drawn as an SVG overlay on the map image, anchored at the
-// user's pixel position (you_px, in the 640x420 image space). Shows wind blowing
-// FROM its source TOWARD the address; matches the compass's animated style.
-// Returns "" if there's no usable wind vector.
-function windArrowOverlay(youPx, wind) {
-  if (!Array.isArray(youPx) || !wind || wind.wind_from_deg === null || wind.wind_from_deg === undefined) return "";
-  const W = 640, H = 420;
-  const ux = youPx[0], uy = youPx[1];
+// SVG overlay drawn on the map image, anchored at the address (= image center).
+// Shows BOTH the wind direction (blue, blowing toward you) and the fire/warning
+// direction (red 🔥 toward the polygon, with distance) — at EVERY zoom level, so
+// even at street zoom (polygon off-frame) you can see which way the fire is.
+function mapOverlay(youPx, verdict) {
+  if (!Array.isArray(youPx)) return "";
+  const W = 640, H = 420, cx = youPx[0], cy = youPx[1];
   const rad = (deg) => ((deg - 90) * Math.PI) / 180;
-  const fromRad = rad(wind.wind_from_deg);              // toward the wind source (tail)
-  const toRadV = rad(wind.wind_from_deg + 180);         // toward the address (head)
-  const L = 88;
-  const tailX = ux + L * Math.cos(fromRad), tailY = uy + L * Math.sin(fromRad);
-  const headX = ux + 17 * Math.cos(toRadV), headY = uy + 17 * Math.sin(toRadV);
-  const aLen = 18, aHalf = 11;
-  const baseX = headX - aLen * Math.cos(toRadV), baseY = headY - aLen * Math.sin(toRadV);
-  const perp = toRadV + Math.PI / 2;
-  const bLX = baseX + aHalf * Math.cos(perp), bLY = baseY + aHalf * Math.sin(perp);
-  const bRX = baseX - aHalf * Math.cos(perp), bRY = baseY - aHalf * Math.sin(perp);
-  const lbl = `winds ${esc(wind.wind_from_compass || "")} · ${Math.round(wind.wind_speed_mph_peak || 0)} mph`;
-  const lblW = Math.max(120, lbl.length * 7.6);
-  return `
-    <svg class="geomap-overlay" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-      <line x1="${tailX.toFixed(1)}" y1="${tailY.toFixed(1)}" x2="${baseX.toFixed(1)}" y2="${baseY.toFixed(1)}"
-            class="mapwind-line" stroke-width="5" stroke-linecap="round" stroke-dasharray="9 5"/>
-      <polygon points="${headX.toFixed(1)},${headY.toFixed(1)} ${bLX.toFixed(1)},${bLY.toFixed(1)} ${bRX.toFixed(1)},${bRY.toFixed(1)}" class="mapwind-head"/>
-      <g transform="translate(12,12)">
-        <rect x="0" y="0" width="${lblW.toFixed(0)}" height="26" rx="9" class="mapwind-pill"/>
-        <text x="11" y="18" font-size="14" class="mapwind-label">${lbl}</text>
-      </g>
-    </svg>`;
+  const wind = verdict.wind_vector, np = verdict.nearest_polygon;
+  let parts = "";
+
+  // Fire direction — a 🔥 toward the warning polygon (skip when you're basically in it)
+  if (np && np.bearing_to_polygon_deg !== null && np.bearing_to_polygon_deg !== undefined && isFinite(np.distance_mi) && np.distance_mi >= 1.5) {
+    const fb = rad(np.bearing_to_polygon_deg);
+    const R = 0.40 * Math.min(W, H);
+    let fx = cx + R * Math.cos(fb), fy = cy + R * Math.sin(fb);
+    fx = Math.max(46, Math.min(W - 46, fx)); fy = Math.max(40, Math.min(H - 48, fy));
+    const lbl = `fire ${Math.round(np.distance_mi)} mi ${esc(np.bearing_to_polygon_compass || "")}`;
+    const lw = Math.max(96, lbl.length * 7.2);
+    parts += `<line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${fx.toFixed(1)}" y2="${fy.toFixed(1)}" class="mapfire-line" stroke-width="3" stroke-dasharray="2 6" stroke-linecap="round"/>
+      <text x="${fx.toFixed(1)}" y="${fy.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="27">🔥</text>
+      <g transform="translate(${fx.toFixed(1)},${(fy + 25).toFixed(1)})"><rect x="${(-lw/2).toFixed(0)}" y="-12" width="${lw.toFixed(0)}" height="22" rx="8" class="mapinfo-pill"/><text x="0" y="4" text-anchor="middle" font-size="12.5" class="mapfire-label">${lbl}</text></g>`;
+  }
+
+  // Wind arrow — blue, blowing from its source toward you
+  if (wind && wind.wind_from_deg !== null && wind.wind_from_deg !== undefined) {
+    const fr = rad(wind.wind_from_deg), tv = rad(wind.wind_from_deg + 180), L = 82;
+    const tx = cx + L * Math.cos(fr), ty = cy + L * Math.sin(fr);
+    const hx = cx + 16 * Math.cos(tv), hy = cy + 16 * Math.sin(tv);
+    const bx = hx - 18 * Math.cos(tv), by = hy - 18 * Math.sin(tv);
+    const pp = tv + Math.PI / 2;
+    const blx = bx + 11 * Math.cos(pp), bly = by + 11 * Math.sin(pp);
+    const brx = bx - 11 * Math.cos(pp), bry = by - 11 * Math.sin(pp);
+    parts += `<line x1="${tx.toFixed(1)}" y1="${ty.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" class="mapwind-line" stroke-width="5" stroke-linecap="round" stroke-dasharray="9 5"/>
+      <polygon points="${hx.toFixed(1)},${hy.toFixed(1)} ${blx.toFixed(1)},${bly.toFixed(1)} ${brx.toFixed(1)},${bry.toFixed(1)}" class="mapwind-head"/>`;
+  }
+
+  // Wind label (top-left)
+  if (wind && wind.wind_from_compass) {
+    const lbl = `winds ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak || 0)} mph`;
+    const lw = Math.max(120, lbl.length * 7.6);
+    parts += `<g transform="translate(12,12)"><rect x="0" y="0" width="${lw.toFixed(0)}" height="26" rx="9" class="mapinfo-pill"/><text x="11" y="18" font-size="14" class="mapwind-label">${lbl}</text></g>`;
+  }
+
+  if (!parts) return "";
+  return `<svg class="geomap-overlay" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${parts}</svg>`;
 }
 
 function upgradeGeoMap(data, container, zoomLevel) {
   const views = data && data.map_views;
-  const view = views && (views[zoomLevel] || views.area);
+  if (!views) return;
+  const view = views[zoomLevel] || views.area;
   const urls = view && view.urls;
   if (!Array.isArray(urls) || !urls.length) return;
+  // Preload every zoom level's image so toggling is instant (no SVG flash).
+  ["wide", "area", "close"].forEach((l) => {
+    const v = views[l];
+    if (v && v.urls && v.urls[0]) { const im = new Image(); im.src = v.urls[0]; }
+  });
   const root = container || document;
   const canvas = root.querySelector(".geomap-canvas");
   if (!canvas) return;
-  const wind = data.verdict && data.verdict.wind_vector;
+  const verdict = data.verdict || {};
   let i = 0;
   (function tryNext() {
     if (i >= urls.length) return;               // exhausted — keep the SVG
@@ -1121,16 +1144,16 @@ function upgradeGeoMap(data, container, zoomLevel) {
       if (settled) return;
       settled = true; clearTimeout(timer);
       img.className = "geomap-img";
-      img.alt = "Map of the active warning area around your address, with tonight's wind direction";
+      img.alt = "Map centered on your address, showing the warning area, wind direction and fire direction";
       const wrap = document.createElement("div");
       wrap.className = "geomap-mapwrap";
       wrap.appendChild(img);
-      const overlay = windArrowOverlay(view.you_px, wind);
+      const overlay = mapOverlay(view.you_px, verdict);
       if (overlay) wrap.insertAdjacentHTML("beforeend", overlay);
       canvas.innerHTML = "";
       canvas.appendChild(wrap);
-      // The map now carries geography + polygon + address + wind, so the abstract
-      // compass is redundant — hide it.
+      // The map now carries geography + polygon + address + wind + fire direction,
+      // so the abstract compass is redundant — hide it.
       const compass = root.querySelector(".compass-wrapper");
       if (compass) compass.style.display = "none";
       track("map_image_shown", {});

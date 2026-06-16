@@ -670,11 +670,13 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
     `&zoom=${z.toFixed(2)}&geometry=${geometry}&marker=${marker}&apiKey=${geoapifyKey}`;
 
   // Three zoom views, all centered on the address (so you_px is the image center).
+  // "close" goes to street level (~16-18); the polygon is usually off-frame there,
+  // so the client draws a fire-direction indicator.
   const mk = (z: number): MapView => ({ urls: [geoapify(z)], you_px: [W / 2, H / 2] });
   return {
     wide:  mk(Math.max(3, fit - 1)),
     area:  mk(fit),
-    close: mk(Math.min(16, fit + 2)),
+    close: mk(Math.min(18, Math.max(fit + 4, 16))),
   };
 }
 
