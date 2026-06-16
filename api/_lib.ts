@@ -593,6 +593,69 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
 }
 
 // ---------------------------------------------------------------------------
+// Static map image URLs (progressive enhancement over the SVG geo-map).
+// The client renders the SVG instantly, then tries to UPGRADE to a real basemap
+// image loaded directly from the provider CDN. We build the URL server-side
+// because we already have the geometry + the key; the client just sets <img src>.
+// Returns an ORDERED list for failover (first that loads wins; SVG is the final
+// fallback). Returns [] when there's no key or no drawable geometry, so the
+// feature no-ops gracefully until a key is configured.
+// ---------------------------------------------------------------------------
+
+// Web-Mercator zoom that fits a lat/lng bbox into a width x height pixel frame.
+function fitZoom(latMin: number, latMax: number, lngMin: number, lngMax: number, w: number, h: number): number {
+  const latRad = (lat: number) => {
+    const s = Math.sin((lat * Math.PI) / 180);
+    return Math.log((1 + s) / (1 - s)) / 2;
+  };
+  const lngFrac = Math.max((lngMax - lngMin) / 360, 1e-6);
+  const latFrac = Math.max((latRad(latMax) - latRad(latMin)) / (2 * Math.PI), 1e-6);
+  const z = Math.min(Math.log2(w / 256 / lngFrac), Math.log2(h / 256 / latFrac));
+  return Math.max(3, Math.min(16, z));
+}
+
+export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): string[] {
+  const geoapifyKey = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
+  // Only draw when there's an actual polygon close enough to be useful (mirrors the SVG gate).
+  if (!nearest || !Array.isArray(nearest.ring) || nearest.ring.length < 3) return [];
+  if (!isFinite(nearest.distance_mi) || nearest.distance_mi > 60) return [];
+
+  const ring = simplifyRing(nearest.ring, 80); // keep the URL short enough for <img src>
+
+  // bbox over ring + user, padded
+  let minLat = userLat, maxLat = userLat, minLng = userLng, maxLng = userLng;
+  for (const [lng, lat] of ring) {
+    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+  }
+  const padLat = Math.max((maxLat - minLat) * 0.18, 0.01);
+  const padLng = Math.max((maxLng - minLng) * 0.18, 0.01);
+  minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
+
+  const W = 640, H = 420;
+  const centerLng = (minLng + maxLng) / 2;
+  const centerLat = (minLat + maxLat) / 2;
+  const zoom = fitZoom(minLat, maxLat, minLng, maxLng, W, H);
+
+  const urls: string[] = [];
+
+  // --- Geoapify (light/minimal style, free tier, no card) ---
+  if (geoapifyKey) {
+    const polyCoords = ring.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(",");
+    const geometry = `polygon:${polyCoords};linecolor:%23d7261a;linewidth:3;fillcolor:%23ff3b30;fillopacity:0.12`;
+    const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
+    urls.push(
+      `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
+      `&width=${W}&height=${H}&center=lonlat:${centerLng.toFixed(5)},${centerLat.toFixed(5)}` +
+      `&zoom=${zoom.toFixed(2)}&geometry=${geometry}&marker=${marker}&apiKey=${geoapifyKey}`
+    );
+  }
+
+  // Future providers (Mapbox, etc.) append here in priority order for failover.
+  return urls;
+}
+
+// ---------------------------------------------------------------------------
 // Response shaping
 // ---------------------------------------------------------------------------
 export function genasysUrl(lat: number, lng: number): string {

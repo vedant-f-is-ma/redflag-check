@@ -440,6 +440,7 @@
     display: block;
   }
   .situation-card .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
+  .situation-card .geomap-img { width: 100%; height: auto; display: block; border-radius: 14px; }
   .situation-card .geomap-caption {
     margin: .4rem 0 0;
     font-size: .76rem;
@@ -749,6 +750,7 @@ $("#check-btn").addEventListener("click", async () => {
     const data = await res.json();
     out.innerHTML = renderZoneResult(data);
     bindShare(addr, data);
+    upgradeGeoMap(data, out);
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
       category: data.action_checklist?.category,
@@ -1005,6 +1007,37 @@ function geoMapSVG(verdict, location) {
   `;
 }
 
+// Progressive enhancement: geoMapSVG() renders instantly as the guaranteed layer.
+// If the server returned real static-map image URLs (a provider key is configured),
+// try to UPGRADE to the actual basemap — each URL in order (failover across providers).
+// On success, swap the SVG for the image; if every URL errors or is too slow (network
+// under load), keep the SVG. The SVG is always the final, always-renders fallback.
+function upgradeGeoMap(data, container) {
+  const urls = data && data.map_image_urls;
+  if (!Array.isArray(urls) || !urls.length) return;
+  const canvas = (container || document).querySelector(".geomap-canvas");
+  if (!canvas) return;
+  let i = 0;
+  (function tryNext() {
+    if (i >= urls.length) return;               // exhausted — keep the SVG
+    const url = urls[i++];
+    const img = new Image();
+    let settled = false;
+    const timer = setTimeout(() => { if (!settled) { settled = true; tryNext(); } }, 4500);
+    img.onload = () => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      img.className = "geomap-img";
+      img.alt = "Map of the active warning area around your address";
+      canvas.innerHTML = "";
+      canvas.appendChild(img);
+      track("map_image_shown", {});
+    };
+    img.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); tryNext(); } };
+    img.src = url;
+  })();
+}
+
 function renderZoneResult(d) {
   const v = d.verdict || {};
   const state = v.state || "safe_tonight";
@@ -1023,8 +1056,8 @@ function renderZoneResult(d) {
   const fullMapLink = (d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty)) || "https://www.watchduty.org";
   const geomap = ringPresent ? `
       <div class="geomap-wrapper">
-        ${geoMapSVG(v, d.location)}
-        <p class="geomap-caption">The actual NWS warning-area shape, drawn to scale around your address. Not a street map — <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">open a full street map ↗</a></p>
+        <div class="geomap-canvas">${geoMapSVG(v, d.location)}</div>
+        <p class="geomap-caption">Active warning area near your address. <a href="${esc(fullMapLink)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
       </div>` : "";
 
   // Matched address — small line beneath the verdict title
