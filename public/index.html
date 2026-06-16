@@ -593,6 +593,25 @@
   }
   footer a { color: var(--accent); text-decoration: none; }
   a { color: var(--accent); }
+
+  /* ===== UX redesign (preview) ===== */
+  .status-line { font-size: .98rem; font-weight: 600; margin: .4rem 0 0; color: var(--text-dim); line-height: 1.4; }
+  .status-line.status-alert { color: var(--accent); }
+  .status-line.status-clear { color: var(--safe); }
+  .hero-card { text-align: center; }
+  .hero-q { font-size: 1.18rem; font-weight: 800; margin: 0 0 1rem; line-height: 1.3; }
+  .primary.locate-btn { display: flex; align-items: center; justify-content: center; gap: .5rem; font-size: 1.08rem; }
+  .hero-or { display: flex; align-items: center; gap: .6rem; margin: .85rem 0 .7rem; color: var(--text-dim); font-size: .82rem; }
+  .hero-or::before, .hero-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+  .hero-addr { display: flex; gap: .5rem; }
+  .hero-addr input { flex: 1; }
+  .check-btn-2 { padding: 0 1.1rem; min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .check-btn-2:hover { background: var(--bg-card); }
+  .hero-meta { font-size: .76rem; color: var(--text-dim); margin: .9rem 0 0; line-height: 1.5; }
+  .fresh-line { font-size: .77rem; color: var(--text-dim); margin: -.2rem 0 .7rem; display: flex; align-items: center; gap: .35rem; }
+  .fire-note { margin: 1.5rem 0 0; border: 1px solid var(--border); border-radius: 12px; padding: 0 .9rem; background: var(--bg-card); }
+  .fire-note summary { cursor: pointer; font-size: .85rem; color: var(--text-dim); padding: .7rem 0; font-weight: 600; }
+  .fire-note p { font-size: .82rem; color: var(--text-dim); line-height: 1.6; margin: 0 0 .7rem; }
 </style>
 </head>
 <body>
@@ -608,13 +627,8 @@
   </div>
   <header>
     <h1><span class="flag" aria-hidden="true">🚩</span> East Bay Red Flag Check</h1>
-    <p class="sub">Type your address. Find out if tonight's Red Flag Warning applies to you, what to do, and your evacuation zone.</p>
-    <p class="meta">Free · No signup · Sources: NWS + US Census + Genasys · Not affiliated with Alameda County</p>
+    <p id="status-line" class="status-line" role="status" aria-live="polite">Checking tonight's fire-weather conditions…</p>
   </header>
-
-  <div class="fire-season-banner" role="note">
-    <strong>Important during fire season:</strong> NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status. Keep a go-bag ready.
-  </div>
 
   <main id="main">
   <div class="tabs" role="tablist" aria-label="Choose what to check">
@@ -625,10 +639,15 @@
 
   <!-- ============================== ZONE TAB ============================== -->
   <section class="panel active" id="panel-zone" role="tabpanel" aria-labelledby="tab-zone">
-    <div class="card">
-      <label for="address-input">Enter an address in the Bay Area</label>
-      <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words">
-      <button class="primary" id="check-btn">Check this address</button>
+    <div class="card hero-card">
+      <p class="hero-q">Is tonight's fire warning near you?</p>
+      <button class="primary locate-btn" id="locate-btn"><span aria-hidden="true">📍</span> Use my location</button>
+      <div class="hero-or"><span>or type your address</span></div>
+      <div class="hero-addr">
+        <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words" aria-label="Your address">
+        <button class="check-btn-2" id="check-btn">Check</button>
+      </div>
+      <p class="hero-meta">Free · no sign-up · official NWS data · not affiliated with Alameda County</p>
     </div>
     <div id="zone-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
@@ -656,6 +675,11 @@
     </div>
     <div id="buddy-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
+
+  <details class="fire-note" role="note">
+    <summary>A warning isn't a fence — why we still say "be ready"</summary>
+    <p>NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status, and keep a go-bag ready.</p>
+  </details>
   </main>
 
   <footer>
@@ -789,14 +813,12 @@ function errorHtml(msg) {
 }
 
 // ---------- Zone Check ----------
-$("#check-btn").addEventListener("click", async () => {
-  const addr = $("#address-input").value.trim();
-  if (!addr) return;
+// Shared zone-check runner — used by both the address check and the location button.
+async function runZoneCheck(qs, label) {
   const out = $("#zone-result");
   out.innerHTML = loadingHtml();
-  $("#check-btn").disabled = true;
   try {
-    const res = await fetch(`${API}/api/v1/zone-check?address=${encodeURIComponent(addr)}`);
+    const res = await fetch(`${API}/api/v1/zone-check?${qs}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       out.innerHTML = errorHtml(err.error || `Lookup failed (${res.status}).`);
@@ -805,9 +827,10 @@ $("#check-btn").addEventListener("click", async () => {
     }
     const data = await res.json();
     out.innerHTML = renderZoneResult(data);
-    bindShare(addr, data);
+    bindShare(label || "your address", data);
     upgradeGeoMap(data, out, getMapZoom());
     bindMapZoom(out, data);
+    try { out.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) {}
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
       category: data.action_checklist?.category,
@@ -816,10 +839,65 @@ $("#check-btn").addEventListener("click", async () => {
   } catch (e) {
     out.innerHTML = errorHtml("Network error. Try again.");
     track("address_check_error", {});
-  } finally {
-    $("#check-btn").disabled = false;
   }
+}
+
+$("#check-btn").addEventListener("click", () => {
+  const addr = $("#address-input").value.trim();
+  if (!addr) { $("#address-input").focus(); return; }
+  runZoneCheck(`address=${encodeURIComponent(addr)}`, addr);
 });
+$("#address-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#check-btn").click(); } });
+
+// Geolocation — the fastest path: one tap, no typing. Falls back to the address field.
+$("#locate-btn").addEventListener("click", () => {
+  const btn = $("#locate-btn"), out = $("#zone-result");
+  if (!navigator.geolocation) {
+    out.innerHTML = errorHtml("Location isn't available on this device — type your address instead.");
+    $("#address-input").focus();
+    return;
+  }
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.textContent = "Locating you…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      btn.disabled = false; btn.innerHTML = orig;
+      runZoneCheck(`lat=${pos.coords.latitude.toFixed(6)}&lng=${pos.coords.longitude.toFixed(6)}`, "your location");
+      track("geolocate_used", {});
+    },
+    () => {
+      btn.disabled = false; btn.innerHTML = orig;
+      out.innerHTML = errorHtml("Couldn't get your location (permission denied or unavailable) — type your address instead.");
+      $("#address-input").focus();
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+});
+
+// Top status line: is there an active Red Flag Warning near the East Bay tonight?
+// Uses a central East Bay reference point so the line is region-specific, not state-wide.
+(async function loadStatus() {
+  const el = $("#status-line");
+  if (!el) return;
+  try {
+    const r = await fetch(`${API}/api/v1/zone-check?lat=37.8044&lng=-122.1900`);
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    const v = d.verdict || {};
+    const near = v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi) ? v.nearest_polygon.distance_mi : Infinity;
+    const active = v.state === "in_zone" || v.state === "downwind_threat" || v.state === "adjacent" || near <= 40;
+    if (active) {
+      el.textContent = "⚠ Active Red Flag Warning in the East Bay area tonight — check your address.";
+      el.className = "status-line status-alert";
+    } else {
+      el.textContent = "✓ No active Red Flag Warning near the East Bay right now.";
+      el.className = "status-line status-clear";
+    }
+  } catch (e) {
+    el.textContent = "Type your address to check tonight's fire warning.";
+    el.className = "status-line";
+  }
+})();
 
 // SVG compass: iconic rendering — 🏠 for the user, a cluster of 🔥 for the active warning region,
 // thick wind arrow with a text "winds" label. Theme-aware via CSS classes (every color comes from a CSS variable
@@ -1196,6 +1274,12 @@ function renderZoneResult(d) {
     ? `<p class="matched-address">📍 ${esc(d.location.matched_address)}</p>`
     : "";
 
+  // Freshness — a timestamp is the strongest trust signal in an emergency.
+  const checkedAt = d.generated_at ? new Date(d.generated_at) : null;
+  const freshLine = (checkedAt && !isNaN(checkedAt))
+    ? `<p class="fresh-line">🟢 Live NWS data · checked ${checkedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>`
+    : "";
+
   // Downwind callout — only when wind is pushing fire conditions toward the user.
   // This is the one interpretation that's worth surfacing in plain English; the rest
   // (distance, wind speed) is now on the SVG.
@@ -1234,6 +1318,7 @@ function renderZoneResult(d) {
     <div class="situation-card state-${stateClass}">
       <h2 class="verdict-title">${esc(headline)}</h2>
       ${matchedAddr}
+      ${freshLine}
       ${compass}
       ${geomap}
       <p class="verdict-explanation">${esc(explanation)}</p>
