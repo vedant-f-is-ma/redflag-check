@@ -7,6 +7,7 @@
 
 import {
   geocodeAddress,
+  reverseGeocode,
   fetchAlertsAtPoint,
   fetchForecastSummary,
   fetchActiveRedFlagPolygons,
@@ -51,12 +52,16 @@ export default async function handler(req: Request): Promise<Response> {
     return errorResponse("Provide either ?address=... or ?lat=...&lng=... (URL-encoded).", 400);
   }
 
-  // Fetch alerts at point, the full state RFW polygon set (for distance math), and forecast in parallel
-  const [pointAlerts, statePolygons, forecast] = await Promise.all([
+  // Fetch alerts at point, the full state RFW polygon set (for distance math), the
+  // forecast, and — for a lat/lng (geolocation) request — a reverse-geocoded label
+  // so the result can confirm WHERE it checked. All in parallel.
+  const [pointAlerts, statePolygons, forecast, reverseLabel] = await Promise.all([
     fetchAlertsAtPoint(lat, lng),
     fetchActiveRedFlagPolygons("CA"),
     fetchForecastSummary(lat, lng),
+    address ? Promise.resolve(null) : reverseGeocode(lat, lng),
   ]);
+  if (!matched_address && reverseLabel) matched_address = reverseLabel;
 
   // Find Red Flag Warning alerts (legacy field for backward compat)
   const redFlagAlerts = pointAlerts.filter((a) => a.event === "Red Flag Warning");

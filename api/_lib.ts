@@ -41,6 +41,31 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult | n
   };
 }
 
+// Reverse geocode lat/lng -> a friendly "near {street}, {city}" label (Geoapify).
+// Lets a "use my location" check confirm WHERE it checked. null if no key or failure.
+export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  const key = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lng}&format=json&apiKey=${key}`,
+      { headers: { "User-Agent": USER_AGENT } }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const r = data?.results && data.results[0];
+    if (!r) return null;
+    const street = r.street || r.suburb || r.neighbourhood || r.district || r.address_line1;
+    const city = r.city || r.town || r.village || r.county;
+    if (street && city) return `near ${street}, ${city}`;
+    if (street) return `near ${street}`;
+    if (r.city) return `near ${r.city}`;
+    return r.formatted ? `near ${r.formatted}` : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // NWS alerts at a point
 // ---------------------------------------------------------------------------
