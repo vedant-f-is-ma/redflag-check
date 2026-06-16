@@ -1479,6 +1479,20 @@ function renderBuddyResult(d) {
     bindShare("demo address", data);
     window.__lastZoneData = data; window.__lastZoneContainer = out;
     upgradeGeoMap(data, out, getMapZoom());
+    // Demo has no server map_views (it's client-built). Fetch the real basemap for the
+    // demo polygon so reviewers can see the actual map without an active warning.
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/v1/static-map`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat: data.location.lat, lng: data.location.lng, nearest: data.verdict.nearest_polygon }),
+        });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && j.map_views) { data.map_views = j.map_views; upgradeGeoMap(data, out, getMapZoom()); }
+      } catch (e) { /* keep the SVG */ }
+    })();
   }
   // Show a small "DEMO" badge so it's clear this isn't real data
   const banner = document.createElement("div");

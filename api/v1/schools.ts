@@ -7,9 +7,11 @@ import { SCHOOLS } from "../_schools";
 export const config = { runtime: "edge" };
 
 export default async function handler(_req: Request): Promise<Response> {
+  // Sorted alphabetically by name so the picker is easy to scan.
+  const schools = [...SCHOOLS].sort((a, b) => a.name.localeCompare(b.name));
   return jsonResponse({
-    count: SCHOOLS.length,
-    schools: SCHOOLS,
+    count: schools.length,
+    schools,
     generated_at: new Date().toISOString(),
   });
 }
