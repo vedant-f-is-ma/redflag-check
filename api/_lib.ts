@@ -614,10 +614,14 @@ function fitZoom(latMin: number, latMax: number, lngMin: number, lngMax: number,
   return Math.max(3, Math.min(16, z));
 }
 
+export interface MapView {
+  urls: string[];              // ordered provider URLs (failover; first that loads wins)
+  you_px: [number, number];    // the user's pixel position in the WxH image (for overlays)
+}
 export interface MapViews {
-  wide: string[];   // zoomed out — more regional context
-  area: string[];   // default — the warning zone + your location, framed
-  close: string[];  // zoomed in on your address — neighborhood detail
+  wide: MapView;    // zoomed out — more regional context
+  area: MapView;    // default — the warning zone + your location
+  close: MapView;   // zoomed in on your address — neighborhood detail
 }
 
 export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): MapViews | null {
@@ -649,25 +653,28 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
 
   const W = 640, H = 420;
-  const centerLng = (minLng + maxLng) / 2;
-  const centerLat = (minLat + maxLat) / 2;
-  const fit = fitZoom(minLat, maxLat, minLng, maxLng, W, H);
+  // Center EVERY view on the address so the user is always at the image center.
+  // This is robust to the provider's framing/zoom quirks (which don't match a naive
+  // Mercator projection), and lets the client anchor the wind arrow at the center.
+  const hLng = Math.max(userLng - minLng, maxLng - userLng);
+  const hLat = Math.max(userLat - minLat, maxLat - userLat);
+  const fit = fitZoom(userLat - hLat, userLat + hLat, userLng - hLng, userLng + hLng, W, H);
 
   // --- Geoapify (light/minimal style, free tier, no card) ---
   const polyCoords = ring.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(",");
   const geometry = `polygon:${polyCoords};linecolor:%23d7261a;linewidth:3;fillcolor:%23ff3b30;fillopacity:0.12`;
   const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
-  const geoapify = (cLng: number, cLat: number, z: number) =>
+  const geoapify = (z: number) =>
     `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
-    `&width=${W}&height=${H}&center=lonlat:${cLng.toFixed(5)},${cLat.toFixed(5)}` +
+    `&width=${W}&height=${H}&center=lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)}` +
     `&zoom=${z.toFixed(2)}&geometry=${geometry}&marker=${marker}&apiKey=${geoapifyKey}`;
 
-  // Three zoom views. Each is an array so additional providers can be appended
-  // for failover (first that loads wins). "close" centers on the address.
+  // Three zoom views, all centered on the address (so you_px is the image center).
+  const mk = (z: number): MapView => ({ urls: [geoapify(z)], you_px: [W / 2, H / 2] });
   return {
-    wide:  [geoapify(centerLng, centerLat, Math.max(3, fit - 1))],
-    area:  [geoapify(centerLng, centerLat, fit)],
-    close: [geoapify(userLng, userLat, Math.min(16, fit + 2.5))],
+    wide:  mk(Math.max(3, fit - 1)),
+    area:  mk(fit),
+    close: mk(Math.min(16, fit + 2)),
   };
 }
 

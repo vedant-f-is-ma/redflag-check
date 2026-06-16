@@ -441,6 +441,14 @@
   }
   .situation-card .geomap-wrapper { margin: 0 0 1rem; width: 100%; }
   .situation-card .geomap-img { width: 100%; height: auto; display: block; border-radius: 14px; }
+  /* Map image + wind-arrow overlay (the arrow is drawn over the real basemap) */
+  .geomap-mapwrap { position: relative; width: 100%; line-height: 0; border-radius: 14px; overflow: hidden; }
+  .geomap-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .mapwind-line { stroke: #0b63b0; animation: wind-flow 1.5s linear infinite; }
+  .mapwind-head { fill: #0b63b0; }
+  .mapwind-pill { fill: rgba(255,255,255,0.9); stroke: rgba(0,0,0,0.14); stroke-width: 1; }
+  .mapwind-label { fill: #0b3a66; font-weight: 800; letter-spacing: .02em; }
+  @media (prefers-reduced-motion: reduce) { .mapwind-line { animation: none; } }
   .situation-card .geomap-caption {
     margin: .4rem 0 0;
     font-size: .76rem;
@@ -1060,12 +1068,48 @@ function geoMapSVG(verdict, location, zoomLevel) {
 // try to UPGRADE to the actual basemap — each URL in order (failover across providers).
 // On success, swap the SVG for the image; if every URL errors or is too slow (network
 // under load), keep the SVG. The SVG is always the final, always-renders fallback.
+// Wind-direction arrow drawn as an SVG overlay on the map image, anchored at the
+// user's pixel position (you_px, in the 640x420 image space). Shows wind blowing
+// FROM its source TOWARD the address; matches the compass's animated style.
+// Returns "" if there's no usable wind vector.
+function windArrowOverlay(youPx, wind) {
+  if (!Array.isArray(youPx) || !wind || wind.wind_from_deg === null || wind.wind_from_deg === undefined) return "";
+  const W = 640, H = 420;
+  const ux = youPx[0], uy = youPx[1];
+  const rad = (deg) => ((deg - 90) * Math.PI) / 180;
+  const fromRad = rad(wind.wind_from_deg);              // toward the wind source (tail)
+  const toRadV = rad(wind.wind_from_deg + 180);         // toward the address (head)
+  const L = 88;
+  const tailX = ux + L * Math.cos(fromRad), tailY = uy + L * Math.sin(fromRad);
+  const headX = ux + 17 * Math.cos(toRadV), headY = uy + 17 * Math.sin(toRadV);
+  const aLen = 18, aHalf = 11;
+  const baseX = headX - aLen * Math.cos(toRadV), baseY = headY - aLen * Math.sin(toRadV);
+  const perp = toRadV + Math.PI / 2;
+  const bLX = baseX + aHalf * Math.cos(perp), bLY = baseY + aHalf * Math.sin(perp);
+  const bRX = baseX - aHalf * Math.cos(perp), bRY = baseY - aHalf * Math.sin(perp);
+  const lbl = `winds ${esc(wind.wind_from_compass || "")} · ${Math.round(wind.wind_speed_mph_peak || 0)} mph`;
+  const lblW = Math.max(120, lbl.length * 7.6);
+  return `
+    <svg class="geomap-overlay" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+      <line x1="${tailX.toFixed(1)}" y1="${tailY.toFixed(1)}" x2="${baseX.toFixed(1)}" y2="${baseY.toFixed(1)}"
+            class="mapwind-line" stroke-width="5" stroke-linecap="round" stroke-dasharray="9 5"/>
+      <polygon points="${headX.toFixed(1)},${headY.toFixed(1)} ${bLX.toFixed(1)},${bLY.toFixed(1)} ${bRX.toFixed(1)},${bRY.toFixed(1)}" class="mapwind-head"/>
+      <g transform="translate(12,12)">
+        <rect x="0" y="0" width="${lblW.toFixed(0)}" height="26" rx="9" class="mapwind-pill"/>
+        <text x="11" y="18" font-size="14" class="mapwind-label">${lbl}</text>
+      </g>
+    </svg>`;
+}
+
 function upgradeGeoMap(data, container, zoomLevel) {
   const views = data && data.map_views;
-  const urls = views && (views[zoomLevel] || views.area);
+  const view = views && (views[zoomLevel] || views.area);
+  const urls = view && view.urls;
   if (!Array.isArray(urls) || !urls.length) return;
-  const canvas = (container || document).querySelector(".geomap-canvas");
+  const root = container || document;
+  const canvas = root.querySelector(".geomap-canvas");
   if (!canvas) return;
+  const wind = data.verdict && data.verdict.wind_vector;
   let i = 0;
   (function tryNext() {
     if (i >= urls.length) return;               // exhausted — keep the SVG
@@ -1077,9 +1121,18 @@ function upgradeGeoMap(data, container, zoomLevel) {
       if (settled) return;
       settled = true; clearTimeout(timer);
       img.className = "geomap-img";
-      img.alt = "Map of the active warning area around your address";
+      img.alt = "Map of the active warning area around your address, with tonight's wind direction";
+      const wrap = document.createElement("div");
+      wrap.className = "geomap-mapwrap";
+      wrap.appendChild(img);
+      const overlay = windArrowOverlay(view.you_px, wind);
+      if (overlay) wrap.insertAdjacentHTML("beforeend", overlay);
       canvas.innerHTML = "";
-      canvas.appendChild(img);
+      canvas.appendChild(wrap);
+      // The map now carries geography + polygon + address + wind, so the abstract
+      // compass is redundant — hide it.
+      const compass = root.querySelector(".compass-wrapper");
+      if (compass) compass.style.display = "none";
       track("map_image_shown", {});
     };
     img.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); tryNext(); } };
