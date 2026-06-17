@@ -46,6 +46,6 @@ export default async function handler(_req: Request): Promise<Response> {
     ],
     disclaimer:
       "Informational only. NOT an official emergency service. " +
-      "For official alerts, sign up at AC Alert. In case of fire, call 911.",
+      "For official alerts, sign up for your county's emergency alerts. In case of fire, call 911.",
   });
 }

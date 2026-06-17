@@ -44,7 +44,7 @@ export default async function handler(req: Request): Promise<Response> {
     count: warnings.length,
     active_red_flag_warnings: warnings,
     source: "NWS api.weather.gov",
-    disclaimer: "Informational only. For official emergency alerts, see weather.gov and ACalert.org.",
+    disclaimer: "Informational only. For official emergency alerts, see weather.gov and your county's emergency alert system.",
     generated_at: new Date().toISOString(),
   });
 }

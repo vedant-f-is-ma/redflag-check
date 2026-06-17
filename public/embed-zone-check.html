@@ -75,7 +75,7 @@
 <body>
 <div class="container">
   <div class="card">
-    <label for="a">Enter an address (East Bay)</label>
+    <label for="a">Enter an address</label>
     <input type="text" id="a" placeholder="e.g., 1980 Allston Way, Berkeley">
     <button id="b">Check Red Flag status</button>
   </div>
@@ -117,7 +117,7 @@ document.getElementById("b").addEventListener("click", async () => {
     </div>` : "";
     out.innerHTML = `
       <div class="verdict ${cls}">${title}<div style="font-weight:400;font-size:.85rem;margin-top:.2rem;">${esc(detail)}</div></div>
-      <div class="card">${stats}<p class="small">Your evacuation zone: <a href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look up on Genasys</a> · Sign up for <a href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">AC Alert</a></p></div>
+      <div class="card">${stats}<p class="small">Your evacuation zone: <a href="${d.links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look up on Genasys</a> · Sign up for <a href="${d.links.official_ac_alert_signup}" target="_blank" rel="noopener">local emergency alerts</a></p></div>
       <p class="small" style="opacity:.85">NWS polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, Lahaina, Palisades) routinely cross polygons. Fire-season preparedness matters regardless.</p>
       <p class="small">Full tool with action checklist + buddy check + school decision: <a href="https://redflag-check.info?address=${encodeURIComponent(addr)}" target="_blank" rel="noopener">open redflag-check.info</a></p>
     `;

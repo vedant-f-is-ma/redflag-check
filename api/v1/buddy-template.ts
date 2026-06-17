@@ -80,11 +80,11 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  const smsText = `Hey ${name}, red flag warning tonight in the East Bay Hills. Checking in. Are you set with phone charged + car keys near the door? Reply 1 = OK, 2 = call me.`;
+  const smsText = `Hey ${name}, red flag warning tonight in your area. Checking in. Are you set with phone charged + car keys near the door? Reply 1 = OK, 2 = call me.`;
   const smsLink = `sms:&body=${encodeURIComponent(smsText)}`;
 
   const emailSubject = `Quick check tonight: Red Flag Warning`;
-  const emailBody = `Hey ${name},\n\nThere's a Red Flag Warning in the East Bay Hills tonight (Wed 11 PM – Thu 9 AM). I wanted to check on you. A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\nNo evacuation is required right now. Just preparing in case.\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
+  const emailBody = `Hey ${name},\n\nThere's a Red Flag Warning in your area tonight. I wanted to check on you. A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\nNo evacuation is required right now. Just preparing in case.\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
   const mailtoLink = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   const ics = buildIcs({

@@ -587,12 +587,12 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
         "Your address is adjacent to the active NWS Red Flag Warning polygon.",
         "Wind-driven fires do not stop at polygon boundaries. The 1991 Oakland Hills fire, the 2023 Lahaina fire, and the 2025 Palisades fire all pushed past nominal boundaries in wind events. Treat tonight as a fire-weather night.",
         "Keep your phone charged and bring it to bed with sound on.",
-        "Sign up for AC Alert if you haven't (link below).",
+        "Sign up for your county's emergency alerts if you haven't (link below).",
         "Know your Genasys zone in case conditions change.",
       ],
       do_not: [
         "Do NOT do anything that throws sparks outdoors tonight.",
-        "Avoid driving through East Bay Hills routes if not essential.",
+        "Avoid driving through fire-prone hill and canyon routes if not essential.",
       ],
       if_evacuation_called: [
         "Wind-driven fires move fast. Be ready to leave even if you're adjacent.",
@@ -604,9 +604,9 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
     do_now: [
       "Your address is outside the active NWS Red Flag Warning polygon.",
       "Important: this does NOT mean fire-safe. NWS polygons are advisory, not boundaries that stop fire. The 1991 Oakland Hills fire, Lahaina, and the Palisades fire all pushed past nominal boundaries in wind events until they ran out of fuel or hit the ocean. During fire season, keep a go-bag ready regardless of polygon status.",
-      "Tonight is still a fire-weather night across the Bay Area. Avoid sparking activities outdoors.",
+      "Tonight is still a fire-weather night in your area. Avoid sparking activities outdoors.",
       "Text a neighbor in the hills. They are in the active polygon and pre-positioning matters most in the next few hours.",
-      "Sign up for AC Alert in case conditions expand (link below).",
+      "Sign up for your county's emergency alerts in case conditions expand (link below).",
     ],
     do_not: [
       "Do not assume polygon-outside means safe. A wind-driven fire can reach you even from an active polygon next door.",
@@ -714,7 +714,7 @@ export function genasysUrl(lat: number, lng: number): string {
   return `https://protect.genasys.com/search?lat=${lat.toFixed(5)}&lon=${lng.toFixed(5)}`;
 }
 
-export const ALAMEDA_AC_ALERT_SIGNUP = "https://member.everbridge.net/index/453003085612570";
+export const LOCAL_ALERTS_URL = "https://www.ready.gov/alerts";
 export const WATCH_DUTY_URL = "https://www.watchduty.org";
 export const AIRNOW_FIRE_MAP = "https://fire.airnow.gov/";
 

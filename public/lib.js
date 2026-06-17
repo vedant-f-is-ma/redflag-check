@@ -158,7 +158,7 @@ export function demoVerdict(state) {
   const wind = { wind_from_compass: "NE", wind_from_deg: 45, wind_to_compass: "SW", wind_to_deg: 225, wind_speed_mph_peak: 35 };
   const np = {
     polygon_id: "demo",
-    polygon_headline: "Red Flag Warning issued for East Bay Hills",
+    polygon_headline: "Red Flag Warning issued for your area",
     distance_mi: state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18,
     bearing_to_polygon_deg: 45,
     bearing_to_polygon_compass: "NE",
@@ -211,7 +211,7 @@ export function demoVerdict(state) {
         : state === "downwind_threat"
         ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
         : state === "adjacent"
-        ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for AC Alert if you haven't.", "Know your Genasys zone in case conditions change."]
+        ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for your county's emergency alerts if you haven't.", "Know your Genasys zone in case conditions change."]
         : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills. They may be in the active polygon."],
       do_not: state === "in_zone" || state === "downwind_threat"
         ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
@@ -220,7 +220,7 @@ export function demoVerdict(state) {
     },
     links: {
       genasys_evacuation_zone_lookup: "https://protect.genasys.com/search?lat=37.7&lon=-122.0",
-      official_ac_alert_signup: "https://member.everbridge.net/index/453003085612570",
+      official_ac_alert_signup: "https://www.ready.gov/alerts",
       watch_duty: "https://www.watchduty.org",
       airnow_fire_map: "https://fire.airnow.gov/",
     },

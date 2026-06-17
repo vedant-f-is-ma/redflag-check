@@ -17,7 +17,7 @@ import {
   genasysUrl,
   jsonResponse,
   errorResponse,
-  ALAMEDA_AC_ALERT_SIGNUP,
+  LOCAL_ALERTS_URL,
   WATCH_DUTY_URL,
   AIRNOW_FIRE_MAP,
 } from "../_lib";
@@ -106,17 +106,17 @@ export default async function handler(req: Request): Promise<Response> {
     action_checklist: checklist,
     links: {
       genasys_evacuation_zone_lookup: genasysUrl(lat, lng),
-      official_ac_alert_signup: ALAMEDA_AC_ALERT_SIGNUP,
+      official_ac_alert_signup: LOCAL_ALERTS_URL,
       watch_duty: WATCH_DUTY_URL,
       airnow_fire_map: AIRNOW_FIRE_MAP,
     },
     sources: [
       "NWS api.weather.gov (Red Flag Warning polygons + hourly wind forecast)",
       "US Census geocoder (address → lat/lng)",
-      "Genasys Protect (official Alameda County evacuation zones)",
+      "Genasys Protect (official evacuation zones)",
     ],
     disclaimer:
-      "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up at AC Alert. In case of fire, call 911.",
+      "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up for your county's emergency alerts. In case of fire, call 911.",
     generated_at: new Date().toISOString(),
   });
 }

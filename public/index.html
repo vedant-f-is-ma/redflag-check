@@ -675,7 +675,7 @@
         </div>
         <button class="check-btn-2" id="check-btn">Check</button>
       </div>
-      <p class="hero-meta">Free · no sign-up · official NWS data · not affiliated with Alameda County</p>
+      <p class="hero-meta">Free · no sign-up · official NWS data · not a government agency</p>
     </div>
     <details class="rfw-explainer">
       <summary>What's a Red Flag Warning?</summary>
@@ -717,7 +717,7 @@
   <footer>
     Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
     For developers: <a href="/docs">API docs</a> · <a href="/openapi.yaml">OpenAPI spec</a> · <a href="https://github.com/vedant-f-is-ma/redflag-check">GitHub</a><br>
-    For official emergency alerts, sign up at <a href="https://www.acgov.org/ready/connect.htm">AC Alert</a>. In case of fire, call 911.
+    For official emergency alerts, sign up for <a href="https://www.ready.gov/alerts">your local emergency alerts</a>. In case of fire, call 911.
   </footer>
 </div>
 
@@ -1303,7 +1303,7 @@ function renderZoneResult(d) {
   const shareText = `${shareHeadline}: ${location.origin}`;
   const smsLink = `sms:&body=${encodeURIComponent(shareText)}`;
   const shareLine = urgent
-    ? "Know someone in the East Bay hills? They may not have checked yet."
+    ? "Know someone in a fire-prone area? They may not have checked yet."
     : "Know someone in the hills? Send them a quick check.";
   const shareHtml = `
     <div class="card share-card">
@@ -1317,7 +1317,7 @@ function renderZoneResult(d) {
     <div class="card">
       <h3 style="margin:0 0 .6rem">Useful links</h3>
       <a class="secondary" href="${links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Look up your evacuation zone</a>
-      <a class="secondary" href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Sign up for AC Alert</a>
+      <a class="secondary" href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Sign up for local alerts</a>
       <a class="secondary" href="${links.watch_duty}" target="_blank" rel="noopener">Open Watch Duty</a>
       <a class="secondary" href="${links.airnow_fire_map}" target="_blank" rel="noopener">Air quality + fire map</a>
     </div>` : "";
