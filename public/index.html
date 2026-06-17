@@ -722,6 +722,7 @@
 </div>
 
 <script type="module">
+import { esc, geoMapSVG, mapOverlay, demoVerdict } from "./lib.js";
 const API = ""; // same-origin
 
 // Tab switching — full ARIA tablist pattern: aria-selected, roving tabindex,
@@ -823,7 +824,6 @@ function bindMapZoom(container, data) {
 
 // ---------- Helpers ----------
 const $ = (s) => document.querySelector(s);
-const esc = (s) => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
 
 // Current map zoom level (persisted): "wide" | "area" | "close" | "closer". Default "area".
 const MAP_ZOOM_ORDER = ["wide", "area", "close", "closer"];
@@ -1147,93 +1147,14 @@ function compassSVG(verdict) {
 }
 
 // Pick a round number ≤ x for the scale-bar length.
-function niceMiles(x) {
-  const steps = [0.25, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 50, 75];
-  let best = steps[0];
-  for (const s of steps) if (s <= x) best = s;
-  return best;
-}
+// niceMiles, geoMapSVG, mapOverlay, demoRing, demoVerdict moved to ./lib.js
 
 // SVG geo-map: draws the ACTUAL nearest Red Flag Warning polygon outline + the
 // user's location + a scale bar, projected from real lat/lng (equirectangular,
 // north-up). No map tiles, so it always renders even if a tile server is down —
 // the one failure mode we refuse to ship during an emergency. This is the
 // "real geography" view that complements the compass (direction/wind) abstraction.
-function geoMapSVG(verdict, location, zoomLevel) {
-  const nearest = verdict && verdict.nearest_polygon;
-  const ring = nearest && Array.isArray(nearest.ring) && nearest.ring.length >= 3 ? nearest.ring : null;
-  if (!ring || !location || !isFinite(location.lat) || !isFinite(location.lng)) return "";
-
-  const uLat = location.lat, uLng = location.lng;
-
-  // Bounding box over the polygon ring + the user point.
-  let minLat = uLat, maxLat = uLat, minLng = uLng, maxLng = uLng;
-  for (const pt of ring) {
-    const lng = pt[0], lat = pt[1];
-    if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
-  }
-  // Pad 12% with a floor so a tiny bbox still has extent.
-  // Zoom level adjusts how much context around the polygon+user we show.
-  const zf = zoomLevel === "wide" ? 2.2 : zoomLevel === "close" ? 0.4 : zoomLevel === "closer" ? 0.22 : 1.0;
-  const padLat = Math.max((maxLat - minLat) * 0.12 * zf, 0.01);
-  const padLng = Math.max((maxLng - minLng) * 0.12 * zf, 0.01);
-  minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
-
-  const centerLat = (minLat + maxLat) / 2;
-  const cosC = Math.cos(centerLat * Math.PI / 180);
-  const worldW = (maxLng - minLng) * cosC;   // east-west, scaled degrees
-  const worldH = (maxLat - minLat);          // north-south, degrees
-  if (!(worldW > 0) || !(worldH > 0)) return "";
-
-  const VW = 340, VHmax = 440, pad = 16;
-  const availW = VW - 2 * pad, availHmax = VHmax - 2 * pad;
-  const scale = Math.min(availW / worldW, availHmax / worldH); // px per scaled-degree
-  const drawW = worldW * scale, drawH = worldH * scale;
-  const VH = drawH + 2 * pad;
-  const offX = pad + (availW - drawW) / 2;
-  const offY = pad;
-  const DEG2MI = 69.0;
-
-  const projX = (lng) => offX + ((lng - minLng) * cosC) * scale;
-  const projY = (lat) => offY + (maxLat - lat) * scale;
-
-  // Polygon path + centroid (for the 🔥 marker).
-  let dPath = "", cLatSum = 0, cLngSum = 0;
-  ring.forEach((pt, i) => {
-    dPath += (i === 0 ? "M" : "L") + projX(pt[0]).toFixed(1) + " " + projY(pt[1]).toFixed(1) + " ";
-    cLngSum += pt[0]; cLatSum += pt[1];
-  });
-  dPath += "Z";
-  const cx = projX(cLngSum / ring.length), cy = projY(cLatSum / ring.length);
-  const ux = projX(uLng), uy = projY(uLat);
-
-  // Scale bar: a round mileage ~30% of the width.
-  const miPerPx = DEG2MI / scale;
-  const barMi = niceMiles(availW * 0.30 * miPerPx);
-  const barPx = (barMi / DEG2MI) * scale;
-  const barY = VH - 11, barX0 = pad, barX1 = pad + barPx;
-
-  const ariaLabel = "Map of the active Red Flag Warning area near your address, drawn from the official NWS polygon. Your location is marked YOU. Scale bar shows " + barMi + " miles.";
-
-  return `
-    <svg viewBox="0 0 ${VW} ${VH.toFixed(0)}" xmlns="http://www.w3.org/2000/svg" style="max-width:${VW}px;width:100%;display:block;margin:0 auto;" role="img" aria-label="${esc(ariaLabel)}">
-      <rect width="${VW}" height="${VH.toFixed(0)}" class="compass-svg-bg" rx="14"/>
-      <path d="${dPath.trim()}" class="geomap-poly"/>
-      <text x="${cx.toFixed(1)}" y="${cy.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="20">🔥</text>
-      <g transform="translate(${VW - 24}, 18)">
-        <path d="M0,-6 L5,6 L0,2 L-5,6 Z" class="geomap-n-arrow"/>
-        <text x="0" y="20" text-anchor="middle" font-size="12" class="geomap-n-label">N</text>
-      </g>
-      <circle cx="${ux.toFixed(1)}" cy="${uy.toFixed(1)}" r="7" class="geomap-user-dot"/>
-      <text x="${ux.toFixed(1)}" y="${(uy - 12).toFixed(1)}" text-anchor="middle" font-size="11" class="geomap-user-label">YOU</text>
-      <line x1="${barX0}" y1="${barY}" x2="${barX1.toFixed(1)}" y2="${barY}" class="geomap-scale-line"/>
-      <line x1="${barX0}" y1="${barY - 4}" x2="${barX0}" y2="${barY + 4}" class="geomap-scale-line"/>
-      <line x1="${barX1.toFixed(1)}" y1="${barY - 4}" x2="${barX1.toFixed(1)}" y2="${(barY + 4)}" class="geomap-scale-line"/>
-      <text x="${(barX1 + 6).toFixed(1)}" y="${(barY + 4).toFixed(1)}" font-size="12" class="geomap-scale-label">${barMi} mi</text>
-    </svg>
-  `;
-}
+// geoMapSVG moved to ./lib.js
 
 // Progressive enhancement: geoMapSVG() renders instantly as the guaranteed layer.
 // If the server returned real static-map image URLs (a provider key is configured),
@@ -1244,49 +1165,7 @@ function geoMapSVG(verdict, location, zoomLevel) {
 // Shows BOTH the wind direction (blue, blowing toward you) and the fire/warning
 // direction (red 🔥 toward the polygon, with distance) — at EVERY zoom level, so
 // even at street zoom (polygon off-frame) you can see which way the fire is.
-function mapOverlay(youPx, verdict) {
-  if (!Array.isArray(youPx)) return "";
-  const W = 640, H = 420, cx = youPx[0], cy = youPx[1];
-  const rad = (deg) => ((deg - 90) * Math.PI) / 180;
-  const wind = verdict.wind_vector, np = verdict.nearest_polygon;
-  let parts = "";
-
-  // Fire direction — a 🔥 toward the warning polygon (skip when you're basically in it)
-  if (np && np.bearing_to_polygon_deg !== null && np.bearing_to_polygon_deg !== undefined && isFinite(np.distance_mi) && np.distance_mi >= 1.5) {
-    const fb = rad(np.bearing_to_polygon_deg);
-    const R = 0.40 * Math.min(W, H);
-    let fx = cx + R * Math.cos(fb), fy = cy + R * Math.sin(fb);
-    fx = Math.max(46, Math.min(W - 46, fx)); fy = Math.max(40, Math.min(H - 48, fy));
-    const lbl = `fire ${Math.round(np.distance_mi)} mi ${esc(np.bearing_to_polygon_compass || "")}`;
-    const lw = Math.max(96, lbl.length * 7.2);
-    parts += `<line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${fx.toFixed(1)}" y2="${fy.toFixed(1)}" class="mapfire-line" stroke-width="3" stroke-dasharray="2 6" stroke-linecap="round"/>
-      <text x="${fx.toFixed(1)}" y="${fy.toFixed(1)}" text-anchor="middle" dy=".35em" font-size="27">🔥</text>
-      <g transform="translate(${fx.toFixed(1)},${(fy + 25).toFixed(1)})"><rect x="${(-lw/2).toFixed(0)}" y="-12" width="${lw.toFixed(0)}" height="22" rx="8" class="mapinfo-pill"/><text x="0" y="4" text-anchor="middle" font-size="12.5" class="mapfire-label">${lbl}</text></g>`;
-  }
-
-  // Wind arrow — blue, blowing from its source toward you
-  if (wind && wind.wind_from_deg !== null && wind.wind_from_deg !== undefined) {
-    const fr = rad(wind.wind_from_deg), tv = rad(wind.wind_from_deg + 180), L = 82;
-    const tx = cx + L * Math.cos(fr), ty = cy + L * Math.sin(fr);
-    const hx = cx + 16 * Math.cos(tv), hy = cy + 16 * Math.sin(tv);
-    const bx = hx - 18 * Math.cos(tv), by = hy - 18 * Math.sin(tv);
-    const pp = tv + Math.PI / 2;
-    const blx = bx + 11 * Math.cos(pp), bly = by + 11 * Math.sin(pp);
-    const brx = bx - 11 * Math.cos(pp), bry = by - 11 * Math.sin(pp);
-    parts += `<line x1="${tx.toFixed(1)}" y1="${ty.toFixed(1)}" x2="${bx.toFixed(1)}" y2="${by.toFixed(1)}" class="mapwind-line" stroke-width="5" stroke-linecap="round" stroke-dasharray="9 5"/>
-      <polygon points="${hx.toFixed(1)},${hy.toFixed(1)} ${blx.toFixed(1)},${bly.toFixed(1)} ${brx.toFixed(1)},${bry.toFixed(1)}" class="mapwind-head"/>`;
-  }
-
-  // Wind label (top-left)
-  if (wind && wind.wind_from_compass) {
-    const lbl = `winds ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak || 0)} mph`;
-    const lw = Math.max(120, lbl.length * 7.6);
-    parts += `<g transform="translate(12,12)"><rect x="0" y="0" width="${lw.toFixed(0)}" height="26" rx="9" class="mapinfo-pill"/><text x="11" y="18" font-size="14" class="mapwind-label">${lbl}</text></g>`;
-  }
-
-  if (!parts) return "";
-  return `<svg class="geomap-overlay" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${parts}</svg>`;
-}
+// mapOverlay moved to ./lib.js
 
 function upgradeGeoMap(data, container, zoomLevel) {
   const views = data && data.map_views;
@@ -1460,101 +1339,7 @@ function renderZoneResult(d) {
 // Lets you preview all 4 verdict states without waiting for a real warning.
 // Synthetic warning-area ring for demo mode (so ?demo= states show the geo-map).
 // Builds an irregular blob NE of the demo user, sized/placed by state.
-function demoRing(state) {
-  const uLat = 37.7, uLng = -122.0, DEG = 69.0;
-  const distMi = state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18;
-  const bearing = 45 * Math.PI / 180; // NE
-  let cLat, cLng, rMi;
-  if (state === "in_zone") {
-    cLat = uLat + 0.03; cLng = uLng + 0.035; rMi = 7;            // polygon surrounds the user
-  } else {
-    const centerDist = distMi + (state === "adjacent" ? 2.5 : 4);
-    cLat = uLat + (centerDist / DEG) * Math.cos(bearing);
-    cLng = uLng + (centerDist / (DEG * Math.cos(uLat * Math.PI / 180))) * Math.sin(bearing);
-    rMi = state === "safe_tonight" ? 6 : 3.5;
-  }
-  const cosLat = Math.cos(cLat * Math.PI / 180), pts = [], n = 14;
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 2 * Math.PI;
-    const wob = 0.72 + 0.5 * Math.abs(Math.sin(2.5 * a + 1));    // irregular edge
-    pts.push([cLng + ((rMi * wob) / (DEG * cosLat)) * Math.cos(a), cLat + ((rMi * wob) / DEG) * Math.sin(a)]);
-  }
-  pts.push(pts[0].slice());
-  return pts;
-}
-
-function demoVerdict(state) {
-  const wind = { wind_from_compass: "NE", wind_from_deg: 45, wind_to_compass: "SW", wind_to_deg: 225, wind_speed_mph_peak: 35 };
-  const np = {
-    polygon_id: "demo",
-    polygon_headline: "Red Flag Warning issued for East Bay Hills",
-    distance_mi: state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18,
-    bearing_to_polygon_deg: 45,
-    bearing_to_polygon_compass: "NE",
-    nearest_lat: 37.78,
-    nearest_lng: -122.18,
-    ring: demoRing(state),
-  };
-  const states = {
-    in_zone: {
-      state: "in_zone",
-      headline: "Your address is inside the active Red Flag Warning.",
-      short_explanation: "Take action tonight: prepare a go-bag and be ready to leave if instructed.",
-      nearest_polygon: np,
-      wind_vector: wind,
-      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "" },
-    },
-    downwind_threat: {
-      state: "downwind_threat",
-      headline: "Wind is pushing fire conditions toward your address tonight.",
-      short_explanation: "Active warning is 8 mi NE of you. Tonight's wind is from the NE at 35 mph. That means fire-favorable conditions are pointing toward you.",
-      nearest_polygon: np,
-      wind_vector: wind,
-      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "high", explanation: "" },
-    },
-    adjacent: {
-      state: "adjacent",
-      headline: "You're near the active warning. Stay alert.",
-      short_explanation: "Nearest active warning is 3 mi NE of you. Conditions could shift.",
-      nearest_polygon: np,
-      wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 12 },
-      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
-    },
-    safe_tonight: {
-      state: "safe_tonight",
-      headline: "You're in a safer area tonight.",
-      short_explanation: "Active warning is 18 mi away and wind is blowing fire conditions away from you.",
-      nearest_polygon: np,
-      wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 14 },
-      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
-    },
-  };
-  const verdict = states[state] || states.safe_tonight;
-  return {
-    location: { lat: 37.7, lng: -122.0, matched_address: "DEMO ADDRESS, FREMONT, CA", zip: "94538" },
-    verdict,
-    action_checklist: {
-      category: state === "in_zone" ? "in_zone" : (state === "downwind_threat" || state === "adjacent") ? "adjacent" : "out_of_zone",
-      do_now: state === "in_zone"
-        ? ["Charge your phone. Keep car keys near the door.", "Park your car facing OUTWARD on the driveway.", "Pack a go-bag: meds, IDs, phone charger, water, sturdy shoes.", "Set a buddy to text-check you at 11 PM tonight."]
-        : state === "downwind_threat"
-        ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
-        : state === "adjacent"
-        ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for AC Alert if you haven't.", "Know your Genasys zone in case conditions change."]
-        : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills — they may be in the active polygon."],
-      do_not: state === "in_zone" || state === "downwind_threat"
-        ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
-        : ["Avoid sparking activities outdoors during fire season."],
-      if_evacuation_called: [],
-    },
-    links: {
-      genasys_evacuation_zone_lookup: "https://protect.genasys.com/search?lat=37.7&lon=-122.0",
-      official_ac_alert_signup: "https://member.everbridge.net/index/453003085612570",
-      watch_duty: "https://www.watchduty.org",
-      airnow_fire_map: "https://fire.airnow.gov/",
-    },
-  };
-}
+// demoRing + demoVerdict moved to ./lib.js
 
 function bindShare(addr, data) {
   const copyBtn = document.getElementById("copy-link");
