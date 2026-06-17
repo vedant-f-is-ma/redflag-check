@@ -657,7 +657,7 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   if (!nearest || !Array.isArray(nearest.ring) || nearest.ring.length < 3) return null;
   if (!isFinite(nearest.distance_mi) || nearest.distance_mi > 60) return null;
 
-  const ring = simplifyRing(nearest.ring, 80); // keep the URL short enough for <img src>
+  const ring = simplifyRing(nearest.ring, 48); // fewer points = faster Geoapify render + shorter URL
 
   // bbox over ring + user, padded
   let minLat = userLat, maxLat = userLat, minLng = userLng, maxLng = userLng;
