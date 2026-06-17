@@ -1391,8 +1391,10 @@ function renderZoneResult(d) {
   const doNot = d.action_checklist?.do_not || [];
   const primaryAction = doNow[0] || "";
   const urgent = state === "in_zone" || state === "downwind_threat";
-  const actionIcon = urgent ? "🎒" : state === "adjacent" ? "📱" : "✅";
-  const actionLabel = state === "safe_tonight" ? "Bottom line" : "Do this first";
+  // Neutral state icon (not action-specific) so it can never contradict the server's
+  // do_now[0] text — which is sometimes a statement, not an action.
+  const actionIcon = state === "safe_tonight" ? "✅" : "⚠️";
+  const actionLabel = "Bottom line";
   const actionHtml = primaryAction ? `
     <div class="primary-action ${urgent ? "urgent" : ""}">
       <span class="action-icon" aria-hidden="true">${actionIcon}</span>
