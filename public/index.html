@@ -862,6 +862,7 @@ async function runZoneCheck(qs, label) {
     bindShare(label || "your address", data);
     upgradeGeoMap(data, out, getMapZoom());
     bindMapZoom(out, data);
+    if (data.location && isFinite(data.location.lat) && isFinite(data.location.lng)) setNearbySchools(data.location.lat, data.location.lng);
     try { out.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) {}
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
@@ -1364,17 +1365,76 @@ function bindShare(addr, data) {
 }
 
 // ---------- Schools ----------
+// Dropdown is grouped by city (A-Z) via <optgroup> so it stays scannable as the
+// list grows. Once a location is known (geolocation or an address check), a small
+// "Near you" group of the closest few is prepended automatically (no toggle to set).
+let SCHOOLS_DATA = [];
+let LAST_LOC = null;
+
+function milesBetween(aLat, aLng, bLat, bLng) {
+  const R = 3958.8, toR = (d) => (d * Math.PI) / 180;
+  const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
+  const sLat = Math.sin(dLat / 2), sLng = Math.sin(dLng / 2);
+  const x = sLat * sLat + Math.cos(toR(aLat)) * Math.cos(toR(bLat)) * sLng * sLng;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function renderSchoolOptions() {
+  const sel = $("#school-select");
+  if (!sel || !SCHOOLS_DATA.length) return;
+  const keep = sel.value;
+  while (sel.children.length > 1) sel.removeChild(sel.lastChild); // keep the leading placeholder
+
+  // "Near you" — only when a location is known and schools fall within ~25 mi.
+  if (LAST_LOC) {
+    const near = SCHOOLS_DATA
+      .map((s) => ({ s, mi: milesBetween(LAST_LOC.lat, LAST_LOC.lng, s.lat, s.lng) }))
+      .filter((x) => x.mi <= 25)
+      .sort((a, b) => a.mi - b.mi)
+      .slice(0, 3);
+    if (near.length) {
+      const og = document.createElement("optgroup");
+      og.label = "Near you";
+      near.forEach(({ s, mi }) => {
+        const o = document.createElement("option");
+        o.value = s.id;
+        o.textContent = `${s.name} (${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi)`;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    }
+  }
+
+  // City groups (A-Z), schools A-Z within each.
+  const byCity = {};
+  SCHOOLS_DATA.forEach((s) => { (byCity[s.city] = byCity[s.city] || []).push(s); });
+  Object.keys(byCity).sort((a, b) => a.localeCompare(b)).forEach((city) => {
+    const og = document.createElement("optgroup");
+    og.label = city;
+    byCity[city].sort((a, b) => a.name.localeCompare(b.name)).forEach((s) => {
+      const o = document.createElement("option");
+      o.value = s.id;
+      o.textContent = s.name;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+
+  if (keep) sel.value = keep;
+}
+
+function setNearbySchools(lat, lng) {
+  if (!isFinite(lat) || !isFinite(lng)) return;
+  LAST_LOC = { lat, lng };
+  renderSchoolOptions();
+}
+
 (async function loadSchools() {
   try {
     const r = await fetch(`${API}/api/v1/schools`);
     const d = await r.json();
-    const sel = $("#school-select");
-    d.schools.forEach(s => {
-      const o = document.createElement("option");
-      o.value = s.id;
-      o.textContent = `${s.name}, ${s.city}`;
-      sel.appendChild(o);
-    });
+    SCHOOLS_DATA = Array.isArray(d.schools) ? d.schools : [];
+    renderSchoolOptions();
   } catch (e) { /* leave dropdown empty */ }
 })();
 
