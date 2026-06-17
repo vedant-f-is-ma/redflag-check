@@ -1167,17 +1167,15 @@ function compassSVG(verdict) {
 // even at street zoom (polygon off-frame) you can see which way the fire is.
 // mapOverlay moved to ./lib.js
 
+// URLs already requested this session, so background zoom-warming fires each at most once.
+const WARMED = new Set();
+
 function upgradeGeoMap(data, container, zoomLevel) {
   const views = data && data.map_views;
   if (!views) return;
   const view = views[zoomLevel] || views.area;
   const urls = view && view.urls;
   if (!Array.isArray(urls) || !urls.length) return;
-  // Preload every zoom level's image so changing zoom is instant (no SVG flash).
-  MAP_ZOOM_ORDER.forEach((l) => {
-    const v = views[l];
-    if (v && v.urls && v.urls[0]) { const im = new Image(); im.src = v.urls[0]; }
-  });
   const root = container || document;
   const canvas = root.querySelector(".geomap-canvas");
   if (!canvas) return;
@@ -1188,7 +1186,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
     const url = urls[i++];
     const img = new Image();
     let settled = false;
-    const timer = setTimeout(() => { if (!settled) { settled = true; tryNext(); } }, 4500);
+    const timer = setTimeout(() => { if (!settled) { settled = true; tryNext(); } }, 8000);
     img.onload = () => {
       if (settled) return;
       settled = true; clearTimeout(timer);
@@ -1205,6 +1203,12 @@ function upgradeGeoMap(data, container, zoomLevel) {
       // so the abstract compass is redundant, hide it.
       const compass = root.querySelector(".compass-wrapper");
       if (compass) compass.style.display = "none";
+      // Current view is in. Now warm the OTHER zoom levels in the background (uncontended,
+      // after the critical render) so zoom stays snappy. Each URL is fetched once per session.
+      MAP_ZOOM_ORDER.forEach((l) => {
+        const u = views[l] && views[l].urls && views[l].urls[0];
+        if (u && !WARMED.has(u)) { WARMED.add(u); if (l !== zoomLevel) new Image().src = u; }
+      });
       track("map_image_shown", {});
     };
     img.onerror = () => { if (!settled) { settled = true; clearTimeout(timer); tryNext(); } };
