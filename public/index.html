@@ -605,7 +605,11 @@
   .hero-or { display: flex; align-items: center; gap: .6rem; margin: .85rem 0 .7rem; color: var(--text-dim); font-size: .82rem; }
   .hero-or::before, .hero-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
   .hero-addr { display: flex; gap: .5rem; }
-  .hero-addr input { flex: 1; }
+  .addr-combo { position: relative; flex: 1; }
+  .addr-combo input { width: 100%; }
+  .addr-suggest { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 40; margin: 0; padding: .25rem; list-style: none; background: var(--bg-card); border: 1px solid var(--border); border-radius: 11px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); max-height: 290px; overflow-y: auto; text-align: left; }
+  .addr-suggest li { padding: .65rem .7rem; border-radius: 8px; cursor: pointer; font-size: .92rem; line-height: 1.3; color: var(--text); }
+  .addr-suggest li[aria-selected="true"], .addr-suggest li:hover { background: var(--bg-input); }
   .check-btn-2 { padding: 0 1.1rem; min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); font-weight: 700; cursor: pointer; white-space: nowrap; }
   .check-btn-2:hover { background: var(--bg-card); }
   .hero-meta { font-size: .76rem; color: var(--text-dim); margin: .9rem 0 0; line-height: 1.5; }
@@ -665,7 +669,10 @@
       <button class="primary locate-btn" id="locate-btn"><span aria-hidden="true">📍</span> Use my location</button>
       <div class="hero-or"><span>or type your address</span></div>
       <div class="hero-addr">
-        <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words" aria-label="Your address">
+        <div class="addr-combo">
+          <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words" aria-label="Your address" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="addr-suggest">
+          <ul id="addr-suggest" class="addr-suggest" role="listbox" aria-label="Address suggestions" hidden></ul>
+        </div>
         <button class="check-btn-2" id="check-btn">Check</button>
       </div>
       <p class="hero-meta">Free · no sign-up · official NWS data · not affiliated with Alameda County</p>
@@ -872,7 +879,66 @@ $("#check-btn").addEventListener("click", () => {
   if (!addr) { $("#address-input").focus(); return; }
   runZoneCheck(`address=${encodeURIComponent(addr)}`, addr);
 });
-$("#address-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("#check-btn").click(); } });
+// Address autocomplete (typeahead). Convenience only — degrades to manual typing if the
+// suggestion API is unavailable. Owns the input's keydown (incl. Enter-to-submit).
+(function setupAutocomplete() {
+  const input = $("#address-input");
+  const list = document.getElementById("addr-suggest");
+  if (!input || !list) return;
+  let items = [], active = -1, timer = null;
+
+  function close() {
+    list.hidden = true; list.innerHTML = ""; items = []; active = -1;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+  function paint() {
+    if (!items.length) { close(); return; }
+    list.innerHTML = items.map((s, i) =>
+      `<li role="option" id="addr-opt-${i}" aria-selected="${i === active ? "true" : "false"}">${esc(s.formatted)}</li>`).join("");
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    if (active >= 0) input.setAttribute("aria-activedescendant", "addr-opt-" + active);
+    else input.removeAttribute("aria-activedescendant");
+  }
+  function choose(i) {
+    const s = items[i]; if (!s) return;
+    input.value = s.formatted;
+    close();
+    track("autocomplete_selected", {});
+    runZoneCheck(`lat=${s.lat.toFixed(6)}&lng=${s.lng.toFixed(6)}`, s.formatted);
+  }
+  async function suggest(q) {
+    try {
+      const r = await fetch(`${API}/api/v1/autocomplete?text=${encodeURIComponent(q)}`);
+      if (!r.ok) { close(); return; }
+      const d = await r.json();
+      if (input.value.trim() !== q) return;        // stale response
+      items = (d.suggestions || []).slice(0, 5); active = -1; paint();
+    } catch (e) { close(); }
+  }
+  input.addEventListener("input", () => {
+    const q = input.value.trim();
+    if (timer) clearTimeout(timer);
+    if (q.length < 3) { close(); return; }
+    timer = setTimeout(() => suggest(q), 250);
+  });
+  input.addEventListener("keydown", (e) => {
+    const open = !list.hidden && items.length;
+    if (e.key === "ArrowDown" && open) { e.preventDefault(); active = (active + 1) % items.length; paint(); }
+    else if (e.key === "ArrowUp" && open) { e.preventDefault(); active = (active - 1 + items.length) % items.length; paint(); }
+    else if (e.key === "Enter") {
+      if (open && active >= 0) { e.preventDefault(); choose(active); }
+      else { e.preventDefault(); close(); $("#check-btn").click(); }
+    } else if (e.key === "Escape") { close(); }
+  });
+  list.addEventListener("mousedown", (e) => {
+    const li = e.target.closest("li"); if (!li) return;
+    e.preventDefault();
+    choose(parseInt(li.id.replace("addr-opt-", ""), 10));
+  });
+  document.addEventListener("click", (e) => { if (e.target !== input && !list.contains(e.target)) close(); });
+})();
 
 // Geolocation — the fastest path: one tap, no typing. Falls back to the address field.
 $("#locate-btn").addEventListener("click", () => {
