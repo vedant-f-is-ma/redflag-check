@@ -53,7 +53,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   // Fetch alerts at point, the full state RFW polygon set (for distance math), the
-  // forecast, and — for a lat/lng (geolocation) request — a reverse-geocoded label
+  // forecast, and, for a lat/lng (geolocation) request, a reverse-geocoded label
   // so the result can confirm WHERE it checked. All in parallel.
   const [pointAlerts, statePolygons, forecast, reverseLabel] = await Promise.all([
     fetchAlertsAtPoint(lat, lng),
@@ -92,7 +92,7 @@ export default async function handler(req: Request): Promise<Response> {
       matched_address: matched_address ?? null,
       zip: zip ?? null,
     },
-    // NEW: the 4-state verdict — clients should prefer this over `in_red_flag_zone` for UI rendering
+    // NEW: the 4-state verdict, clients should prefer this over `in_red_flag_zone` for UI rendering
     verdict,
     // Static-map image URLs (real basemap + polygon overlay) the client can upgrade
     // to from the SVG, at three zoom levels {wide, area, close}, each an ordered

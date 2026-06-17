@@ -87,7 +87,7 @@ export default async function handler(req: Request): Promise<Response> {
   const decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent);
 
   // A school is just a named lat/lng, so compute the same 4-state verdict + map the
-  // address path does — the result can then show the geo-map + wind/fire overlay.
+  // address path does, the result can then show the geo-map + wind/fire overlay.
   const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast);
   const map_views = buildStaticMapUrls(school.lat, school.lng, verdict.nearest_polygon);
 

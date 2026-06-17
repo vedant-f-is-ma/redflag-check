@@ -498,7 +498,7 @@ export function classifyVerdict(
     } else {
       downwind.threat_level = "none";
       downwind.explanation = nearest.distance_mi > DOWNWIND_MAX_DISTANCE_MI
-        ? `Nearest active warning is ${Math.round(nearest.distance_mi)} mi away — too far for tonight's wind to matter.`
+        ? `Nearest active warning is ${Math.round(nearest.distance_mi)} mi away. Too far for tonight's wind to matter.`
         : windVector.wind_speed_mph_peak < DOWNWIND_MIN_WIND_MPH
         ? "Wind tonight is light enough that fire conditions aren't strongly pushed in any direction."
         : "Wind tonight is blowing away from the active warning area, not toward you.";
@@ -569,7 +569,7 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
         "Do NOT mow dry grass.",
         "Do NOT use BBQs, fire pits, or open flames outdoors.",
         "Do NOT park on dry grass.",
-        "Do NOT drag chains (boat trailers, etc.) — sparks.",
+        "Do NOT drag chains (boat trailers, etc.). Sparks.",
         "Do NOT operate power tools that throw sparks.",
       ],
       if_evacuation_called: [
@@ -605,7 +605,7 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
       "Your address is outside the active NWS Red Flag Warning polygon.",
       "Important: this does NOT mean fire-safe. NWS polygons are advisory, not boundaries that stop fire. The 1991 Oakland Hills fire, Lahaina, and the Palisades fire all pushed past nominal boundaries in wind events until they ran out of fuel or hit the ocean. During fire season, keep a go-bag ready regardless of polygon status.",
       "Tonight is still a fire-weather night across the Bay Area. Avoid sparking activities outdoors.",
-      "Text a neighbor in the hills — they are in the active polygon and pre-positioning matters most in the next few hours.",
+      "Text a neighbor in the hills. They are in the active polygon and pre-positioning matters most in the next few hours.",
       "Sign up for AC Alert in case conditions expand (link below).",
     ],
     do_not: [
@@ -644,10 +644,10 @@ export interface MapView {
   you_px: [number, number];    // the user's pixel position in the WxH image (for overlays)
 }
 export interface MapViews {
-  wide: MapView;    // zoomed out — more regional context
-  area: MapView;    // default — the warning zone + your location
+  wide: MapView;    // zoomed out, more regional context
+  area: MapView;    // default, the warning zone + your location
   close: MapView;   // street level
-  closer: MapView;  // block level — most zoomed in
+  closer: MapView;  // block level, most zoomed in
 }
 
 export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): MapViews | null {
@@ -665,7 +665,7 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
     if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
   }
-  // Guarantee the user pin keeps breathing room from every edge so it never clips —
+  // Guarantee the user pin keeps breathing room from every edge so it never clips,
   // extra on top because the material pin's body extends UP (north) from its tip.
   const spanLat0 = (maxLat - minLat) || 0.02;
   const spanLng0 = (maxLng - minLng) || 0.02;

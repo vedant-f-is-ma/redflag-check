@@ -4,7 +4,7 @@
 //
 // Builds static-map image URLs for an arbitrary user point + nearest-polygon
 // geometry. The server holds the provider key, so this lets the client render the
-// real basemap for geometry it already has — used by demo mode to show the map
+// real basemap for geometry it already has, used by demo mode to show the map
 // without an active Red Flag Warning.
 
 import { buildStaticMapUrls, jsonResponse, errorResponse } from "../_lib";

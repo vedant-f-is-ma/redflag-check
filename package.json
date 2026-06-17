@@ -1,7 +1,7 @@
 {
   "name": "redflag-check",
   "version": "0.1.0",
-  "description": "East Bay Red Flag Warning zone check — address-in, plain-English-out. Public API + web UI.",
+  "description": "East Bay Red Flag Warning zone check, address-in, plain-English-out. Public API + web UI.",
   "private": true,
   "type": "module",
   "scripts": {

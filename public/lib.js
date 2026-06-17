@@ -1,6 +1,6 @@
 // Pure, side-effect-free rendering + demo helpers, extracted from the inline page
 // script so they can be unit-tested (Bun) and reused by both the address and school
-// result paths. No DOM, no fetch, no top-level work — safe to import anywhere.
+// result paths. No DOM, no fetch, no top-level work, safe to import anywhere.
 
 export const esc = (s) => String(s).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 
@@ -88,7 +88,7 @@ export function geoMapSVG(verdict, location, zoomLevel) {
 
 // SVG overlay drawn on the map image (anchored at the address = image center). Shows
 // BOTH the wind direction (blue, toward you) and the fire/warning direction (red 🔥),
-// at every zoom level — so even at street zoom (polygon off-frame) you see the fire.
+// at every zoom level, so even at street zoom (polygon off-frame) you see the fire.
 export function mapOverlay(youPx, verdict) {
   if (!Array.isArray(youPx)) return "";
   const W = 640, H = 420, cx = youPx[0], cy = youPx[1];
@@ -212,7 +212,7 @@ export function demoVerdict(state) {
         ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
         : state === "adjacent"
         ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for AC Alert if you haven't.", "Know your Genasys zone in case conditions change."]
-        : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills — they may be in the active polygon."],
+        : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills. They may be in the active polygon."],
       do_not: state === "in_zone" || state === "downwind_threat"
         ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
         : ["Avoid sparking activities outdoors during fire season."],

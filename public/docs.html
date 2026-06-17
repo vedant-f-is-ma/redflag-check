@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Red Flag Check — Public API documentation</title>
+<title>Red Flag Check · Public API documentation</title>
 <meta name="description" content="Free, public, no-auth API for Red Flag Warning lookups, school decisions, and buddy-check templates. Integrate into your county website, school district page, mutual-aid app, or news widget.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="alternate icon" href="/favicon.ico">
@@ -107,7 +107,7 @@
 <div class="container">
 
 <p class="small"><a href="/">← back to the app</a></p>
-<h1><span class="flag">🚩</span> Red Flag Check — Public API</h1>
+<h1><span class="flag">🚩</span> Red Flag Check · Public API</h1>
 <p class="sub">Free, no-auth, CORS-enabled. Integrate into a county website, school-district page, mutual-aid app, or news widget. Cached at the edge for 60 seconds.</p>
 
 <div class="callout">
@@ -225,8 +225,8 @@
 <tr><th>Parameter</th><th>Required</th><th>Default</th><th>Description</th></tr>
 <tr><td><code>name</code></td><td>No</td><td>"your neighbor"</td><td>Friend's first name.</td></tr>
 <tr><td><code>time</code></td><td>No</td><td>22:30 PT today</td><td>ISO 8601 reminder time.</td></tr>
-<tr><td><code>friend_lat</code></td><td>No</td><td>—</td><td>Friend's latitude (for zone lookup).</td></tr>
-<tr><td><code>friend_lng</code></td><td>No</td><td>—</td><td>Friend's longitude.</td></tr>
+<tr><td><code>friend_lat</code></td><td>No</td><td>none</td><td>Friend's latitude (for zone lookup).</td></tr>
+<tr><td><code>friend_lng</code></td><td>No</td><td>none</td><td>Friend's longitude.</td></tr>
 </table>
 <h3>Example</h3>
 <pre><code>curl 'https://redflag-check.info/api/v1/buddy-template?name=Jane&friend_lat=37.7811&friend_lng=-122.1556'</code></pre>
@@ -237,7 +237,7 @@
 </div>
 
 <h2>Embed widget</h2>
-<p>Drop this iframe into any web page — works on county sites, school district pages, news articles, anywhere:</p>
+<p>Drop this iframe into any web page. It works on county sites, school district pages, news articles, anywhere:</p>
 <pre><code>&lt;iframe src="https://redflag-check.info/embed/zone-check"
   width="100%" height="520" frameborder="0"
   style="max-width:480px;border-radius:12px;"&gt;&lt;/iframe&gt;</code></pre>
@@ -245,19 +245,19 @@
 
 <h2>Rate limits + caching</h2>
 <ul>
-  <li>No formal rate limit at this tier — we cache aggressively at the Vercel edge (60s).</li>
+  <li>No formal rate limit at this tier. We cache aggressively at the Vercel edge (60s).</li>
   <li>If you're doing high-volume scheduled polling (more than ~1 req/sec sustained), email <code>vedant28t [at] gmail [dot] com</code> so we can plan capacity.</li>
-  <li>If the NWS upstream is degraded, we'll return a 502 with details — check <code>/api/v1/health</code>.</li>
+  <li>If the NWS upstream is degraded, we'll return a 502 with details. Check <code>/api/v1/health</code>.</li>
 </ul>
 
 <h2>License + attribution</h2>
 <p>API responses are public-domain data (NWS, US Census). The wrapper, UX, and aggregation are MIT-licensed. Attribution appreciated but not required.</p>
 
 <h2>Source code</h2>
-<p><a href="https://github.com/vedant-f-is-ma/redflag-check">github.com/vedant-f-is-ma/redflag-check</a> — open PRs welcome.</p>
+<p><a href="https://github.com/vedant-f-is-ma/redflag-check">github.com/vedant-f-is-ma/redflag-check</a>. Open PRs welcome.</p>
 
 <h2>Contact</h2>
-<p>Built by a Fremont high schooler in 48 hours. Reach out: <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#118;&#101;&#100;&#97;&#110;&#116;&#50;&#56;&#116;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;">vedant28t [at] gmail [dot] com</a> <span class="small">(replace [at]/[dot], or click — link is encoded against scrapers)</span></p>
+<p>Built by a Fremont high schooler in 48 hours. Reach out: <a href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#118;&#101;&#100;&#97;&#110;&#116;&#50;&#56;&#116;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;">vedant28t [at] gmail [dot] com</a> <span class="small">(replace [at]/[dot], or click; the link is encoded against scrapers)</span></p>
 
 <p class="small" style="margin-top:2rem">Informational only. NOT an official emergency service. For official alerts, sign up at <a href="https://www.acgov.org/ready/connect.htm">AC Alert</a>. In case of fire, call 911.</p>
 

@@ -102,7 +102,7 @@ document.getElementById("b").addEventListener("click", async () => {
     const d = await res.json();
     const cat = d.action_checklist.category;
     const cls = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
-    const title = cat === "in_zone" ? "⚠️ Yes — warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "Outside the active warning polygon";
+    const title = cat === "in_zone" ? "⚠️ Yes, warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "Outside the active warning polygon";
     let detail = "";
     if (d.alerts && d.alerts.length) {
       const a = d.alerts[0];
@@ -113,7 +113,7 @@ document.getElementById("b").addEventListener("click", async () => {
     const t = d.forecast?.tonight;
     const stats = t ? `<div class="stats">
       <div class="stat"><div class="l">Max wind</div><div class="v">${Math.round(t.max_wind_mph)} mph</div></div>
-      <div class="stat"><div class="l">Min humidity</div><div class="v">${t.min_humidity_pct == null ? "—" : Math.round(t.min_humidity_pct)+"%"}</div></div>
+      <div class="stat"><div class="l">Min humidity</div><div class="v">${t.min_humidity_pct == null ? "N/A" : Math.round(t.min_humidity_pct)+"%"}</div></div>
     </div>` : "";
     out.innerHTML = `
       <div class="verdict ${cls}">${title}<div style="font-weight:400;font-size:.85rem;margin-top:.2rem;">${esc(detail)}</div></div>

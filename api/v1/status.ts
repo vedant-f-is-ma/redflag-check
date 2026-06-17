@@ -1,5 +1,5 @@
 // GET /api/v1/status
-// Current active Red Flag Warnings in California — useful for any system that
+// Current active Red Flag Warnings in California, useful for any system that
 // just wants the list (e.g., a county PIO dashboard, a school-district admin
 // page, a Bay Area news widget).
 

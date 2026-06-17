@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>East Bay Red Flag Check — does the warning apply to me?</title>
+<title>East Bay Red Flag Check: does the warning apply to me?</title>
 <meta name="description" content="Type your East Bay address. Find out if the active Red Flag Warning actually covers you, what to do tonight, and your evacuation zone. Free. No signup.">
 <meta name="theme-color" content="#1a1a1a">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -13,7 +13,7 @@
 <meta property="og:description" content="Type your address. Find out if tonight's Red Flag Warning applies to you. Free, no signup.">
 <meta property="og:type" content="website">
 <script>
-// Inline theme + font-size init — runs before CSS to avoid flash of incorrect settings
+// Inline theme + font-size init, runs before CSS to avoid flash of incorrect settings
 (function() {
   try {
     var stored = localStorage.getItem("rfc-theme");
@@ -53,7 +53,7 @@
     --safe: #1e9c4a;
     --border: #d8d8d8;
   }
-  /* Font-size scaling — toggles the root font-size; all rem-based sizes follow.
+  /* Font-size scaling, toggles the root font-size; all rem-based sizes follow.
      16px default → 18px medium → 20px large. Persisted in localStorage. */
   html { font-size: 17px; }
   html[data-font-size="medium"] { font-size: 19px; }
@@ -94,7 +94,7 @@
   .ui-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .container { position: relative; }
 
-  /* Skip link for keyboard / screen-reader users — visible only on focus */
+  /* Skip link for keyboard / screen-reader users, visible only on focus */
   .skip-link {
     position: absolute;
     top: -100px;
@@ -119,7 +119,7 @@
     white-space: nowrap; border: 0;
   }
 
-  /* Universal focus indicators — keyboard users need to see where they are */
+  /* Universal focus indicators, keyboard users need to see where they are */
   button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible {
     outline: 3px solid var(--accent);
     outline-offset: 2px;
@@ -305,7 +305,7 @@
     color: #5a2800;
     background: rgba(217, 79, 29, 0.07);
   }
-  /* Compass theming — every SVG color is a CSS variable so it follows light/dark.
+  /* Compass theming, every SVG color is a CSS variable so it follows light/dark.
      Defaults are tuned for dark; light overrides come below. */
   :root {
     --compass-bg: #1a1a1a;
@@ -432,7 +432,7 @@
     margin: 0 0 1rem;
     width: 100%;
   }
-  /* SVG fills the card width fully — viewBox preserves aspect ratio */
+  /* SVG fills the card width fully, viewBox preserves aspect ratio */
   .situation-card .compass-wrapper svg,
   .geomap-wrapper svg {
     width: 100% !important;
@@ -689,7 +689,7 @@
     <div class="card">
       <label for="school-select">Pick a school</label>
       <select id="school-select">
-        <option value="">— Choose a school —</option>
+        <option value="">Choose a school</option>
       </select>
       <button class="primary" id="school-btn">Check this school</button>
     </div>
@@ -709,7 +709,7 @@
   </section>
 
   <details class="fire-note" role="note">
-    <summary>A warning isn't a fence — why we still say "be ready"</summary>
+    <summary>A warning isn't a fence: why we still say "be ready"</summary>
     <p>NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status, and keep a go-bag ready.</p>
   </details>
   </main>
@@ -725,7 +725,7 @@
 import { esc, geoMapSVG, mapOverlay, demoVerdict } from "./lib.js";
 const API = ""; // same-origin
 
-// Tab switching — full ARIA tablist pattern: aria-selected, roving tabindex,
+// Tab switching, full ARIA tablist pattern: aria-selected, roving tabindex,
 // hidden attribute on inactive panels, and arrow-key keyboard navigation.
 (function setupTabs() {
   const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
@@ -767,7 +767,7 @@ const API = ""; // same-origin
   if (!btn || !icon) return;
   const order = ["default", "medium", "large"];
   const iconFor = { default: "A", medium: "A+", large: "A++" };
-  const labelFor = { default: "Default size — click for larger text", medium: "Medium size — click for largest text", large: "Largest size — click to reset" };
+  const labelFor = { default: "Default size, click for larger text", medium: "Medium size, click for largest text", large: "Largest size, click to reset" };
 
   function apply(size) {
     if (size === "default") document.documentElement.removeAttribute("data-font-size");
@@ -832,7 +832,7 @@ function getMapZoom() {
   catch (e) { return "area"; }
 }
 
-// Vercel Analytics — track real user actions, not just page views
+// Vercel Analytics, track real user actions, not just page views
 function track(event, props) {
   try { window.va && window.va("event", { name: event, data: props || {} }); } catch (e) {}
 }
@@ -845,7 +845,7 @@ function errorHtml(msg) {
 }
 
 // ---------- Zone Check ----------
-// Shared zone-check runner — used by both the address check and the location button.
+// Shared zone-check runner, used by both the address check and the location button.
 async function runZoneCheck(qs, label) {
   const out = $("#zone-result");
   out.innerHTML = loadingHtml();
@@ -879,7 +879,7 @@ $("#check-btn").addEventListener("click", () => {
   if (!addr) { $("#address-input").focus(); return; }
   runZoneCheck(`address=${encodeURIComponent(addr)}`, addr);
 });
-// Address autocomplete (typeahead). Convenience only — degrades to manual typing if the
+// Address autocomplete (typeahead). Convenience only, degrades to manual typing if the
 // suggestion API is unavailable. Owns the input's keydown (incl. Enter-to-submit).
 (function setupAutocomplete() {
   const input = $("#address-input");
@@ -940,11 +940,11 @@ $("#check-btn").addEventListener("click", () => {
   document.addEventListener("click", (e) => { if (e.target !== input && !list.contains(e.target)) close(); });
 })();
 
-// Geolocation — the fastest path: one tap, no typing. Falls back to the address field.
+// Geolocation, the fastest path: one tap, no typing. Falls back to the address field.
 $("#locate-btn").addEventListener("click", () => {
   const btn = $("#locate-btn"), out = $("#zone-result");
   if (!navigator.geolocation) {
-    out.innerHTML = errorHtml("Location isn't available on this device — type your address instead.");
+    out.innerHTML = errorHtml("Location isn't available on this device. Type your address instead.");
     $("#address-input").focus();
     return;
   }
@@ -958,7 +958,7 @@ $("#locate-btn").addEventListener("click", () => {
     },
     () => {
       btn.disabled = false; btn.innerHTML = orig;
-      out.innerHTML = errorHtml("Couldn't get your location (permission denied or unavailable) — type your address instead.");
+      out.innerHTML = errorHtml("Couldn't get your location (permission denied or unavailable). Type your address instead.");
       $("#address-input").focus();
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
@@ -978,7 +978,7 @@ $("#locate-btn").addEventListener("click", () => {
     const near = v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi) ? v.nearest_polygon.distance_mi : Infinity;
     const active = v.state === "in_zone" || v.state === "downwind_threat" || v.state === "adjacent" || near <= 40;
     if (active) {
-      el.textContent = "⚠ Active Red Flag Warning in the East Bay area tonight — check your address.";
+      el.textContent = "⚠ Active Red Flag Warning in the East Bay area tonight. Check your address.";
       el.className = "status-line status-alert";
     } else {
       el.textContent = "✓ No active Red Flag Warning near the East Bay right now.";
@@ -990,7 +990,7 @@ $("#locate-btn").addEventListener("click", () => {
   }
 })();
 
-// SVG compass: iconic rendering — 🏠 for the user, a cluster of 🔥 for the active warning region,
+// SVG compass: iconic rendering, 🏠 for the user, a cluster of 🔥 for the active warning region,
 // thick wind arrow with a text "winds" label. Theme-aware via CSS classes (every color comes from a CSS variable
 // so light/dark mode follows the page theme). Auto-scales viewport: zoomed in when only wind
 // is shown, wider when a polygon is at distance.
@@ -1072,7 +1072,7 @@ function compassSVG(verdict) {
   // Two layouts:
   //   - in_zone (user is inside the polygon): fire ring SURROUNDS the user at the center.
   //     Larger ellipse covers both fire icons and the user. No "0 mi" distance label
-  //     (it's nonsensical — the user is inside it).
+  //     (it's nonsensical, the user is inside it).
   //   - otherwise: polygon at distance offset with distance/bearing pill below.
   let polygonEl = "";
   if (hasPolygon) {
@@ -1151,19 +1151,19 @@ function compassSVG(verdict) {
 
 // SVG geo-map: draws the ACTUAL nearest Red Flag Warning polygon outline + the
 // user's location + a scale bar, projected from real lat/lng (equirectangular,
-// north-up). No map tiles, so it always renders even if a tile server is down —
+// north-up). No map tiles, so it always renders even if a tile server is down,
 // the one failure mode we refuse to ship during an emergency. This is the
 // "real geography" view that complements the compass (direction/wind) abstraction.
 // geoMapSVG moved to ./lib.js
 
 // Progressive enhancement: geoMapSVG() renders instantly as the guaranteed layer.
 // If the server returned real static-map image URLs (a provider key is configured),
-// try to UPGRADE to the actual basemap — each URL in order (failover across providers).
+// try to UPGRADE to the actual basemap, each URL in order (failover across providers).
 // On success, swap the SVG for the image; if every URL errors or is too slow (network
 // under load), keep the SVG. The SVG is always the final, always-renders fallback.
 // SVG overlay drawn on the map image, anchored at the address (= image center).
 // Shows BOTH the wind direction (blue, blowing toward you) and the fire/warning
-// direction (red 🔥 toward the polygon, with distance) — at EVERY zoom level, so
+// direction (red 🔥 toward the polygon, with distance), at EVERY zoom level, so
 // even at street zoom (polygon off-frame) you can see which way the fire is.
 // mapOverlay moved to ./lib.js
 
@@ -1184,7 +1184,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
   const verdict = data.verdict || {};
   let i = 0;
   (function tryNext() {
-    if (i >= urls.length) return;               // exhausted — keep the SVG
+    if (i >= urls.length) return;               // exhausted, keep the SVG
     const url = urls[i++];
     const img = new Image();
     let settled = false;
@@ -1202,7 +1202,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
       canvas.innerHTML = "";
       canvas.appendChild(wrap);
       // The map now carries geography + polygon + address + wind + fire direction,
-      // so the abstract compass is redundant — hide it.
+      // so the abstract compass is redundant, hide it.
       const compass = root.querySelector(".compass-wrapper");
       if (compass) compass.style.display = "none";
       track("map_image_shown", {});
@@ -1213,7 +1213,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
 }
 
 // Shared geo-map block (zoom stepper + canvas + caption). Used by both the address
-// result and the school result — a school is just a named lat/lng with a warning nearby.
+// result and the school result, a school is just a named lat/lng with a warning nearby.
 function geomapBlock(verdict, location, fullMapLink, place) {
   const np = verdict && verdict.nearest_polygon;
   const ringPresent = np && Array.isArray(np.ring) && np.ring.length >= 3 && isFinite(np.distance_mi) && np.distance_mi <= 60;
@@ -1238,25 +1238,25 @@ function renderZoneResult(d) {
   const headline = v.headline || "Result";
   const explanation = v.short_explanation || "";
 
-  // Compass — always show when there's any geometry OR wind data
+  // Compass, always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
 
-  // Geo-map (real polygon shape + wind/fire overlay) — shared with the school result.
+  // Geo-map (real polygon shape + wind/fire overlay), shared with the school result.
   const geomap = geomapBlock(v, d.location, d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty), "your address");
 
-  // Matched address — small line beneath the verdict title
+  // Matched address, small line beneath the verdict title
   const matchedAddr = d.location?.matched_address
     ? `<p class="matched-address">📍 ${esc(d.location.matched_address)}</p>`
     : "";
 
-  // Freshness — a timestamp is the strongest trust signal in an emergency.
+  // Freshness, a timestamp is the strongest trust signal in an emergency.
   const checkedAt = d.generated_at ? new Date(d.generated_at) : null;
   const freshLine = (checkedAt && !isNaN(checkedAt))
     ? `<p class="fresh-line">🟢 Live NWS data · checked ${checkedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>`
     : "";
 
-  // Downwind callout — only when wind is pushing fire conditions toward the user.
+  // Downwind callout, only when wind is pushing fire conditions toward the user.
   // This is the one interpretation that's worth surfacing in plain English; the rest
   // (distance, wind speed) is now on the SVG.
   let downwindCallout = "";
@@ -1264,14 +1264,14 @@ function renderZoneResult(d) {
     downwindCallout = `<p class="downwind-callout">⚠ Wind is blowing FROM the warning area TOWARD your address. Treat tonight as if you were inside the polygon.</p>`;
   }
 
-  // One clear action first — derived from the server's expert-vetted checklist (do_now[0]) —
+  // One clear action first, derived from the server's expert-vetted checklist (do_now[0]),
   // then the rest collapses. A scared person needs ONE thing, not a wall of do/don't.
   const doNow = d.action_checklist?.do_now || [];
   const doNot = d.action_checklist?.do_not || [];
   const primaryAction = doNow[0] || "";
   const urgent = state === "in_zone" || state === "downwind_threat";
   // Neutral state icon (not action-specific) so it can never contradict the server's
-  // do_now[0] text — which is sometimes a statement, not an action.
+  // do_now[0] text, which is sometimes a statement, not an action.
   const actionIcon = state === "safe_tonight" ? "✅" : "⚠️";
   const actionLabel = "Bottom line";
   const actionHtml = primaryAction ? `
@@ -1368,7 +1368,7 @@ function bindShare(addr, data) {
     d.schools.forEach(s => {
       const o = document.createElement("option");
       o.value = s.id;
-      o.textContent = `${s.name} — ${s.city}`;
+      o.textContent = `${s.name}, ${s.city}`;
       sel.appendChild(o);
     });
   } catch (e) { /* leave dropdown empty */ }
@@ -1418,15 +1418,15 @@ function renderSchoolResult(d) {
   const stats = t
     ? `<div class="grid">
         <div class="stat"><p class="label">Max wind tonight</p><p class="value">${Math.round(t.max_wind_mph)} mph</p></div>
-        <div class="stat"><p class="label">Min humidity</p><p class="value">${t.min_humidity_pct == null ? "—" : Math.round(t.min_humidity_pct) + "%"}</p></div>
+        <div class="stat"><p class="label">Min humidity</p><p class="value">${t.min_humidity_pct == null ? "N/A" : Math.round(t.min_humidity_pct) + "%"}</p></div>
       </div>`
     : "";
 
-  const emailSubject = `Wildfire-day check — ${s.name} (${new Date().toLocaleDateString()})`;
+  const emailSubject = `Wildfire-day check: ${s.name} (${new Date().toLocaleDateString()})`;
   const emailBody = `Sharing this single-page status check for ${s.name} during tonight's Red Flag Warning.\n\nRecommendation: ${lvlLabel}.\nRationale: ${d.decision_recommendation.rationale}\nSource: ${d.decision_recommendation.source}.\n\nFull data: ${location.origin}/api/v1/school-status?id=${s.id}\n\nThis is informational only; final decisions rest with district leadership.`;
   const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
-  // A school is a named lat/lng — show the same geo-map + wind/fire overlay as an address.
+  // A school is a named lat/lng, show the same geo-map + wind/fire overlay as an address.
   const schoolMap = geomapBlock(d.verdict, d.location, null, esc(s.name));
 
   return `
@@ -1492,7 +1492,7 @@ function renderBuddyResult(d) {
   const zoneNote = d.friend_zone_status
     ? (d.friend_zone_status.in_red_flag_zone
         ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
-        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active warning polygon.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect polygon boundaries (1991 Oakland Hills, Lahaina, Palisades) — fire-season preparedness matters regardless.</p></div>`)
+        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active warning polygon.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect polygon boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`)
     : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
   return `
     ${zoneNote}

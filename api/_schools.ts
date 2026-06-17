@@ -154,7 +154,7 @@ export const SCHOOLS: School[] = [
     lng: -121.9136,
     zone_class: "ridge",
   },
-  // Lamorinda (Contra Costa County, Acalanes Union HSD) — canyon/WUI terrain
+  // Lamorinda (Contra Costa County, Acalanes Union HSD), canyon/WUI terrain
   // downwind of east-Contra-Costa ignition risk. Added after Fire Safe
   // Moraga-Orinda ED Rob Schroeder asked for local school coverage (2026-06-16).
   {
