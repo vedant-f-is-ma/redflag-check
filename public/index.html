@@ -637,6 +637,9 @@
   .rfw-explainer { margin: 0 0 1rem; border: 1px solid var(--border); border-radius: 12px; padding: 0 .9rem; background: var(--bg-card); }
   .rfw-explainer summary { cursor: pointer; font-size: .88rem; color: var(--accent); padding: .7rem 0; font-weight: 600; }
   .rfw-explainer p { font-size: .88rem; color: var(--text-dim); line-height: 1.6; margin: 0 0 .7rem; }
+  /* Evacuation zone CTA — prominent button for in_zone / downwind_threat states */
+  .evac-cta { display: block; text-align: center; padding: .9rem 1.2rem; background: var(--danger); color: #fff !important; font-weight: 700; font-size: 1.05rem; border-radius: 12px; text-decoration: none; margin-bottom: 1rem; }
+  .evac-cta:hover { opacity: .88; }
   /* Fire background data card (Pyrecast fuel type + ELMFIRE model) */
   .fire-context-card { margin-bottom: 1rem; }
   .fire-context-card h3 { margin: 0 0 .6rem; font-size: .88rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); font-weight: 700; }
@@ -1300,7 +1303,7 @@ function renderZoneResult(d) {
   const moreDo = doNow.slice(1).map(s => `<li class="do">${esc(s)}</li>`).join("");
   const dontItems = doNot.map(s => `<li class="dont">${esc(s)}</li>`).join("");
   const moreChecklist = (moreDo || dontItems) ? `
-    <details class="checklist-details">
+    <details class="checklist-details"${urgent ? " open" : ""}>
       <summary>What else to do${dontItems ? " · what not to do" : ""}</summary>
       ${moreDo ? `<p class="cl-head">Also do tonight</p><ul>${moreDo}</ul>` : ""}
       ${dontItems ? `<p class="cl-head">What NOT to do</p><ul>${dontItems}</ul>` : ""}
@@ -1339,7 +1342,7 @@ function renderZoneResult(d) {
       <h3>Background fire data</h3>
       <div class="fc-row"><span class="fc-label">Fuel type</span><span class="fc-value">${fuelLine}</span></div>
       <div class="fc-row"><span class="fc-label">Model</span><span class="fc-value ${riskClass}">${riskLine}</span></div>
-      <p class="fc-source">Source: Pyrecast / Pyregence — ELMFIRE model, LANDFIRE 2.5.0 fuels (open access)</p>
+      <p class="fc-source">Fire spread model only — not a report of an active fire. Source: Pyrecast / Pyregence — ELMFIRE model, LANDFIRE 2.5.0 fuels (open access)</p>
     </div>`;
   }
 
@@ -1353,6 +1356,10 @@ function renderZoneResult(d) {
       <a class="secondary" href="${links.airnow_fire_map}" target="_blank" rel="noopener">Air quality + fire map</a>
     </div>` : "";
 
+  const evacCtaHtml = (urgent && links.genasys_evacuation_zone_lookup)
+    ? `<a class="evac-cta" href="${links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Find your evacuation zone →</a>`
+    : "";
+
   return `
     <div class="situation-card state-${stateClass}">
       <h2 class="verdict-title">${esc(headline)}</h2>
@@ -1364,11 +1371,12 @@ function renderZoneResult(d) {
       ${downwindCallout}
     </div>
     ${actionHtml}
-    ${shareHtml}
     ${moreChecklist}
+    ${evacCtaHtml}
     ${fireContextHtml}
     ${linksHtml}
     <p class="small" style="margin-top:1rem;opacity:0.7;line-height:1.5">Note: the downwind reading is a flat-earth wind-line approximation. Ridges and canyons change actual fire paths. Always heed official evacuation orders.</p>
+    ${shareHtml}
   `;
 }
 
