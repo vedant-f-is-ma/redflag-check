@@ -4,6 +4,7 @@ import {
   fetchActiveRedFlagPolygons, haversineMiles, bearingDeg, bearingToCompass,
   compassToBearing, angularDiff, pointInPolygon, pointToPolygonNearest,
   classifyVerdict, buildActionChecklist, simplifyRing, buildStaticMapUrls,
+  wgs84ToEPSG3310, fetchPyrecastData,
   genasysUrl, jsonResponse, errorResponse, USER_AGENT,
   type RedFlagPolygon, type ForecastSummary,
 } from "../api/_lib";
@@ -183,6 +184,68 @@ describe("response + url helpers", () => {
   test("USER_AGENT is a non-empty string", () => {
     expect(typeof USER_AGENT).toBe("string");
     expect(USER_AGENT.length).toBeGreaterThan(0);
+  });
+});
+
+describe("wgs84ToEPSG3310", () => {
+  test("Oakland Hills matches pyproj reference", () => {
+    const { x, y } = wgs84ToEPSG3310(37.85, -122.2);
+    expect(x).toBe(-193305);
+    expect(y).toBe(-16251);
+  });
+  test("Malibu reference point", () => {
+    const { x, y } = wgs84ToEPSG3310(34.03, -118.78);
+    expect(x).toBeCloseTo(112664, -2);
+    expect(y).toBeCloseTo(-442114, -2);
+  });
+});
+
+describe("fetchPyrecastData", () => {
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test("returns null outside coverage area", async () => {
+    expect(await fetchPyrecastData(48.0, -122.0)).toBeNull();  // too far north
+    expect(await fetchPyrecastData(37.8, -75.0)).toBeNull();   // East Coast
+  });
+
+  test("parses fuel type and risk from WMS responses", async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      const body = url.includes("fbfm40")
+        ? "Results for FeatureType 'fbfm40':\nGRAY_INDEX = 186.0\n"
+        : "Results for FeatureType 'impacted-structures':\nGRAY_INDEX = 0.0\n";
+      return new Response(body, { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d).not.toBeNull();
+    expect(d!.fuel_type.fbfm40_code).toBe(186);
+    expect(d!.fuel_type.description).toBe("Timber Litter (TL6)");
+    expect(d!.risk_forecast.max_impacted_structures).toBe(0);
+    expect(d!.risk_forecast.is_active).toBe(false);
+  });
+
+  test("is_active true when any time step > 0", async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      const body = url.includes("fbfm40")
+        ? "GRAY_INDEX = 141.0\n"
+        : "GRAY_INDEX = 0.0\nGRAY_INDEX = 0.0\nGRAY_INDEX = 47.0\nGRAY_INDEX = 0.0\n";
+      return new Response(body, { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d!.risk_forecast.is_active).toBe(true);
+    expect(d!.risk_forecast.max_impacted_structures).toBe(47);
+    expect(d!.fuel_type.description).toBe("Shrub (SH1)");
+  });
+
+  test("returns null when both fetches fail", async () => {
+    globalThis.fetch = (async () => new Response("err", { status: 500 })) as any;
+    expect(await fetchPyrecastData(37.85, -122.2)).toBeNull();
+  });
+
+  test("handles network errors gracefully", async () => {
+    globalThis.fetch = (async () => { throw new Error("network"); }) as any;
+    expect(await fetchPyrecastData(37.85, -122.2)).toBeNull();
   });
 });
 

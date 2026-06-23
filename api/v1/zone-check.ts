@@ -11,6 +11,7 @@ import {
   fetchAlertsAtPoint,
   fetchForecastSummary,
   fetchActiveRedFlagPolygons,
+  fetchPyrecastData,
   classifyVerdict,
   buildActionChecklist,
   buildStaticMapUrls,
@@ -55,11 +56,12 @@ export default async function handler(req: Request): Promise<Response> {
   // Fetch alerts at point, the full state RFW polygon set (for distance math), the
   // forecast, and, for a lat/lng (geolocation) request, a reverse-geocoded label
   // so the result can confirm WHERE it checked. All in parallel.
-  const [pointAlerts, statePolygons, forecast, reverseLabel] = await Promise.all([
+  const [pointAlerts, statePolygons, forecast, reverseLabel, pyrecast] = await Promise.all([
     fetchAlertsAtPoint(lat, lng),
     fetchActiveRedFlagPolygons("CA"),
     fetchForecastSummary(lat, lng),
     address ? Promise.resolve(null) : reverseGeocode(lat, lng),
+    fetchPyrecastData(lat, lng),
   ]);
   if (!matched_address && reverseLabel) matched_address = reverseLabel;
 
@@ -110,10 +112,12 @@ export default async function handler(req: Request): Promise<Response> {
       watch_duty: WATCH_DUTY_URL,
       airnow_fire_map: AIRNOW_FIRE_MAP,
     },
+    fire_context: pyrecast,
     sources: [
       "NWS api.weather.gov (Red Flag Warning polygons + hourly wind forecast)",
       "US Census geocoder (address → lat/lng)",
       "Genasys Protect (official evacuation zones)",
+      ...(pyrecast ? ["Pyrecast/Pyregence (ELMFIRE fire spread model, LANDFIRE 2.5.0 fuels — open access)"] : []),
     ],
     disclaimer:
       "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up for your county's emergency alerts. In case of fire, call 911.",

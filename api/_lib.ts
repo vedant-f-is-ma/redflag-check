@@ -708,6 +708,152 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
 }
 
 // ---------------------------------------------------------------------------
+// EPSG:3310 — NAD83 / California Albers Equal-Area Conic (pure TypeScript)
+// Implements the ellipsoidal Albers formulae from USGS PP-1395.
+// Valid for CA + adjacent West states (lat 31-43, lng -125 to -112).
+// ---------------------------------------------------------------------------
+
+const _A83 = 6_378_137.0;                   // GRS80 semi-major axis (m)
+const _E2_83 = 0.00669437999014;            // GRS80 eccentricity squared
+const _E_83 = Math.sqrt(_E2_83);
+
+const _ALBERS_PHI1 = 34.0 * (Math.PI / 180);   // 1st standard parallel
+const _ALBERS_PHI2 = 40.5 * (Math.PI / 180);   // 2nd standard parallel
+const _ALBERS_LAM0 = -120.0 * (Math.PI / 180); // central meridian
+const _ALBERS_FN = -4_000_000.0;               // false northing (m)
+
+function _mA(phi: number): number {
+  return Math.cos(phi) / Math.sqrt(1 - _E2_83 * Math.sin(phi) ** 2);
+}
+function _qA(phi: number): number {
+  const s = Math.sin(phi);
+  const es = _E_83 * s;
+  return (1 - _E2_83) * (s / (1 - _E2_83 * s * s) - Math.log((1 - es) / (1 + es)) / (2 * _E_83));
+}
+
+const _m1A = _mA(_ALBERS_PHI1);
+const _m2A = _mA(_ALBERS_PHI2);
+const _q1A = _qA(_ALBERS_PHI1);
+const _q2A = _qA(_ALBERS_PHI2);
+const _q0A = _qA(0);
+const _nA  = (_m1A * _m1A - _m2A * _m2A) / (_q2A - _q1A);
+const _CA  = _m1A * _m1A + _nA * _q1A;
+const _rho0A = _A83 * Math.sqrt(_CA - _nA * _q0A) / _nA;
+
+export function wgs84ToEPSG3310(lat: number, lng: number): { x: number; y: number } {
+  const phi = lat * (Math.PI / 180);
+  const lam = lng * (Math.PI / 180);
+  const q = _qA(phi);
+  const rho = _A83 * Math.sqrt(_CA - _nA * q) / _nA;
+  const theta = _nA * (lam - _ALBERS_LAM0);
+  return {
+    x: Math.round(rho * Math.sin(theta)),
+    y: Math.round(_rho0A - rho * Math.cos(theta) + _ALBERS_FN),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Pyrecast GeoServer — LANDFIRE fuel type + ELMFIRE Risk/Consequence forecast
+// Open access (no credentials required). geoserver-usw1.pyrecast.org/geoserver01
+// ---------------------------------------------------------------------------
+
+const _PYRECAST = "https://geoserver-usw1.pyrecast.org/geoserver01/ows";
+const _PYRECAST_R = 500; // ±500m BBOX radius for point lookup
+
+// Daily ELMFIRE runs publish at 12:00 UTC; allow 6h processing before switching.
+function _latestRun(): string {
+  const now = new Date();
+  const d = now.getUTCHours() >= 18 ? now : new Date(now.getTime() - 86_400_000);
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}_12`;
+}
+
+function _pyrecastUrl(layer: string, x: number, y: number, featureCount: number): string {
+  const bbox = `${x - _PYRECAST_R},${y - _PYRECAST_R},${x + _PYRECAST_R},${y + _PYRECAST_R}`;
+  const enc = encodeURIComponent(layer);
+  return `${_PYRECAST}?service=WMS&version=1.3.0&request=GetFeatureInfo` +
+    `&layers=${enc}&query_layers=${enc}` +
+    `&bbox=${bbox}&width=10&height=10&crs=EPSG:3310&i=5&j=5` +
+    `&info_format=text/plain&FEATURE_COUNT=${featureCount}`;
+}
+
+function _parseGrayIndices(text: string): number[] {
+  return Array.from(text.matchAll(/GRAY_INDEX\s*=\s*([\d.]+)/g))
+    .map((m) => parseFloat(m[1]))
+    .filter((v) => isFinite(v));
+}
+
+// LANDFIRE FBFM40 (Scott & Burgan 40 fuel models) → human-readable description
+function _describeFBFM40(code: number): { description: string; fire_behavior: string } {
+  if (code >= 101 && code <= 109) return { description: `Grass (GR${code - 100})`,           fire_behavior: "Fast spread, moderate flame height" };
+  if (code >= 121 && code <= 129) return { description: `Grass-Shrub (GS${code - 120})`,      fire_behavior: "High spread potential, spotting risk" };
+  if (code >= 141 && code <= 149) return { description: `Shrub (SH${code - 140})`,            fire_behavior: "High intensity, strong spotting" };
+  if (code >= 161 && code <= 169) return { description: `Timber Understory (TU${code - 160})`,fire_behavior: "Moderate spread, ladder fuel risk" };
+  if (code >= 181 && code <= 189) return { description: `Timber Litter (TL${code - 180})`,    fire_behavior: "Moderate spread, deep fire in litter" };
+  if (code >= 191 && code <= 199) return { description: `Slash-Blowdown (SB${code - 190})`,   fire_behavior: "High intensity if ignited" };
+  if (code >= 91  && code <= 99)  return { description: "Non-burnable",                       fire_behavior: "Minimal fire risk" };
+  return { description: `Fuel model ${code}`, fire_behavior: "See LANDFIRE documentation" };
+}
+
+export interface PyrecastData {
+  fuel_type: {
+    fbfm40_code: number | null;
+    description: string | null;
+    fire_behavior: string | null;
+  };
+  risk_forecast: {
+    run_date: string;
+    max_impacted_structures: number;
+    is_active: boolean;
+  };
+  source: string;
+}
+
+// Fetches background fuel type (always) and ELMFIRE 24-hour impacted-structures
+// forecast in parallel. Returns null if outside coverage area or both fetches fail.
+export async function fetchPyrecastData(lat: number, lng: number): Promise<PyrecastData | null> {
+  if (lat < 31 || lat > 43 || lng < -125 || lng > -112) return null;
+  const { x, y } = wgs84ToEPSG3310(lat, lng);
+  const runDate = _latestRun();
+
+  const [fuelRes, riskRes] = await Promise.allSettled([
+    fetch(_pyrecastUrl("fuels-and-topography_landfire-2.5.0:fbfm40", x, y, 1)),
+    fetch(_pyrecastUrl(`fire-risk-forecast_all_${runDate}:elmfire_landfire_impacted-structures`, x, y, 24)),
+  ]);
+
+  let fbfm40: number | null = null;
+  if (fuelRes.status === "fulfilled" && fuelRes.value.ok) {
+    const vals = _parseGrayIndices(await fuelRes.value.text());
+    if (vals.length > 0) fbfm40 = vals[0];
+  }
+
+  let maxImpacted = 0;
+  let riskOk = false;
+  if (riskRes.status === "fulfilled" && riskRes.value.ok) {
+    riskOk = true;
+    const vals = _parseGrayIndices(await riskRes.value.text());
+    if (vals.length > 0) maxImpacted = Math.max(...vals);
+  }
+
+  // Nothing useful if we got no fuel type and the risk request also failed
+  if (fbfm40 === null && !riskOk) return null;
+
+  const fuelInfo = fbfm40 !== null ? _describeFBFM40(Math.round(fbfm40)) : null;
+  return {
+    fuel_type: {
+      fbfm40_code: fbfm40,
+      description: fuelInfo?.description ?? null,
+      fire_behavior: fuelInfo?.fire_behavior ?? null,
+    },
+    risk_forecast: {
+      run_date: runDate,
+      max_impacted_structures: Math.round(maxImpacted),
+      is_active: maxImpacted > 0,
+    },
+    source: "Pyrecast/Pyregence — ELMFIRE model, LANDFIRE 2.5.0 (open access)",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Response shaping
 // ---------------------------------------------------------------------------
 export function genasysUrl(lat: number, lng: number): string {
