@@ -235,7 +235,7 @@ export function demoVerdict(state) {
         max_impacted_structures: state === "in_zone" ? 127 : state === "downwind_threat" ? 89 : state === "adjacent" ? 23 : 0,
         is_active: state !== "safe_tonight",
       },
-      source: "Pyrecast/Pyregence — ELMFIRE model, LANDFIRE 2.5.0 (open access) [DEMO]",
+      source: "Pyrecast/Pyregence, ELMFIRE model, LANDFIRE 2.5.0 (open access) [DEMO]",
     },
   };
 }
