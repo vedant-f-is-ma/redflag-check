@@ -17,7 +17,8 @@
 (function() {
   try {
     var stored = localStorage.getItem("rfc-theme");
-    var theme = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    var h = new Date().getHours();
+    var theme = stored || ((h >= 7 && h < 19) ? "light" : "dark");
     document.documentElement.setAttribute("data-theme", theme);
     var fs = localStorage.getItem("rfc-font-size");
     if (fs && fs !== "default") {
