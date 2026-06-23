@@ -642,8 +642,8 @@
   .evac-cta:hover { opacity: .88; }
   /* Numbered checklist steps */
   .checklist li.step-item::before { display: none; }
-  .checklist li.step-item { padding-left: 2.2rem; }
-  .step-num { position: absolute; left: 0; top: .28rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--safe); color: #fff; font-size: .7rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  li.step-item { display: flex; align-items: flex-start; gap: .45rem; padding-left: 0 !important; }
+  .step-num { flex-shrink: 0; margin-top: .22rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--safe); color: #fff; font-size: .7rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
   /* Compass key caption */
   .compass-legend { font-size: .75rem; color: var(--text-dim); text-align: center; margin: -.3rem 0 .8rem; line-height: 1.4; }
   /* "Checked for" address label */
