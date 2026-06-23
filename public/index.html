@@ -422,11 +422,10 @@
   html[data-theme="light"] .situation-card.state-adjacent .verdict-title { color: #6a4500; }
 
   .situation-card .matched-address {
-    margin: 0 0 1rem;
-    font-size: .82rem;
-    color: var(--text-dim);
+    margin: 0 0 .75rem;
+    font-size: .88rem;
+    color: var(--text);
     font-weight: 500;
-    letter-spacing: .02em;
   }
   .situation-card .compass-wrapper {
     margin: 0 0 1rem;
@@ -640,6 +639,18 @@
   /* Evacuation zone CTA — prominent button for in_zone / downwind_threat states */
   .evac-cta { display: block; text-align: center; padding: .9rem 1.2rem; background: var(--danger); color: #fff !important; font-weight: 700; font-size: 1.05rem; border-radius: 12px; text-decoration: none; margin-bottom: 1rem; }
   .evac-cta:hover { opacity: .88; }
+  /* Numbered checklist steps */
+  .checklist li.step-item::before { display: none; }
+  .checklist li.step-item { padding-left: 2.2rem; }
+  .step-num { position: absolute; left: 0; top: .28rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--safe); color: #fff; font-size: .7rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+  /* Compass key caption */
+  .compass-legend { font-size: .75rem; color: var(--text-dim); text-align: center; margin: -.3rem 0 .8rem; line-height: 1.4; }
+  /* "Checked for" address label */
+  .matched-label { display: block; font-size: .72rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .06em; font-weight: 500; margin-bottom: .1rem; }
+  /* Safe-tonight preparedness card */
+  ul.safe-prep { list-style: none; padding: 0; margin: 0; }
+  ul.safe-prep li { font-size: .9rem; padding: .3rem 0 .3rem 1.4rem; position: relative; line-height: 1.4; }
+  ul.safe-prep li::before { content: "→"; position: absolute; left: 0; color: var(--safe); font-weight: 700; }
   /* Fire background data card (Pyrecast fuel type + ELMFIRE model) */
   .fire-context-card { margin-bottom: 1rem; }
   .fire-context-card h3 { margin: 0 0 .6rem; font-size: .88rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); font-weight: 700; }
@@ -1258,13 +1269,14 @@ function renderZoneResult(d) {
   // Compass, always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
+  const compassLegend = compass ? `<p class="compass-legend">📍 your address · outlined polygon = warning area · arrow = wind direction</p>` : "";
 
   // Geo-map (real polygon shape + wind/fire overlay), shared with the school result.
   const geomap = geomapBlock(v, d.location, d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty), "your address");
 
   // Matched address, small line beneath the verdict title
   const matchedAddr = d.location?.matched_address
-    ? `<p class="matched-address">📍 ${esc(d.location.matched_address)}</p>`
+    ? `<p class="matched-address"><span class="matched-label">Checked for</span>${esc(d.location.matched_address)}</p>`
     : "";
 
   // Freshness, a timestamp is the strongest trust signal in an emergency.
@@ -1300,7 +1312,7 @@ function renderZoneResult(d) {
       </div>
     </div>` : "";
 
-  const moreDo = doNow.slice(1).map(s => `<li class="do">${esc(s)}</li>`).join("");
+  const moreDo = doNow.slice(1).map((s, i) => `<li class="do step-item"><span class="step-num">${i + 2}</span>${esc(s)}</li>`).join("");
   const dontItems = doNot.map(s => `<li class="dont">${esc(s)}</li>`).join("");
   const moreChecklist = (moreDo || dontItems) ? `
     <details class="checklist-details"${urgent ? " open" : ""}>
@@ -1360,19 +1372,35 @@ function renderZoneResult(d) {
     ? `<a class="evac-cta" href="${links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">Find your evacuation zone →</a>`
     : "";
 
+  const safePrepHtml = (state === "safe_tonight" && links.genasys_evacuation_zone_lookup) ? `
+    <div class="card">
+      <h3 style="margin:0 0 .6rem;font-size:.88rem;text-transform:uppercase;letter-spacing:.07em;color:var(--text-dim);font-weight:700">Prepare for next time</h3>
+      <ul class="safe-prep">
+        <li>Know your evacuation zone — <a href="${links.genasys_evacuation_zone_lookup}" target="_blank" rel="noopener">look it up now</a> while it's calm</li>
+        <li>Sign up for <a href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">local emergency alerts</a> if you haven't yet</li>
+        <li>Download <a href="${links.watch_duty}" target="_blank" rel="noopener">Watch Duty</a> — faster active-fire updates than official channels</li>
+      </ul>
+    </div>` : "";
+
+  const watchForHtml = (state === "adjacent" || state === "downwind_threat") ? `
+    <p class="small" style="margin-top:.5rem;opacity:0.85;line-height:1.5">📡 Watch for updates: if conditions change, official alerts will upgrade your area. <a href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Make sure you're signed up for local alerts.</a></p>` : "";
+
   return `
     <div class="situation-card state-${stateClass}">
       <h2 class="verdict-title">${esc(headline)}</h2>
       ${matchedAddr}
       ${freshLine}
+      ${downwindCallout}
       ${compass}
+      ${compassLegend}
       ${geomap}
       <p class="verdict-explanation">${esc(explanation)}</p>
-      ${downwindCallout}
     </div>
     ${actionHtml}
     ${moreChecklist}
     ${evacCtaHtml}
+    ${safePrepHtml}
+    ${watchForHtml}
     ${fireContextHtml}
     ${linksHtml}
     <p class="small" style="margin-top:1rem;opacity:0.7;line-height:1.5">Note: the downwind reading is a flat-earth wind-line approximation. Ridges and canyons change actual fire paths. Always heed official evacuation orders.</p>
