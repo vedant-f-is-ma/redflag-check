@@ -224,5 +224,18 @@ export function demoVerdict(state) {
       watch_duty: "https://www.watchduty.org",
       airnow_fire_map: "https://fire.airnow.gov/",
     },
+    fire_context: {
+      fuel_type: {
+        fbfm40_code: 142,
+        description: "Shrub (SH2)",
+        fire_behavior: "high intensity, strong spotting",
+      },
+      risk_forecast: {
+        run_date: (() => { const d = new Date(); return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,"0")}${String(d.getUTCDate()).padStart(2,"0")}_12`; })(),
+        max_impacted_structures: state === "in_zone" ? 127 : state === "downwind_threat" ? 89 : state === "adjacent" ? 23 : 0,
+        is_active: state !== "safe_tonight",
+      },
+      source: "Pyrecast/Pyregence — ELMFIRE model, LANDFIRE 2.5.0 (open access) [DEMO]",
+    },
   };
 }
