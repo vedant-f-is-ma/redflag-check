@@ -637,6 +637,15 @@
   .rfw-explainer { margin: 0 0 1rem; border: 1px solid var(--border); border-radius: 12px; padding: 0 .9rem; background: var(--bg-card); }
   .rfw-explainer summary { cursor: pointer; font-size: .88rem; color: var(--accent); padding: .7rem 0; font-weight: 600; }
   .rfw-explainer p { font-size: .88rem; color: var(--text-dim); line-height: 1.6; margin: 0 0 .7rem; }
+  /* Fire background data card (Pyrecast fuel type + ELMFIRE model) */
+  .fire-context-card { margin-bottom: 1rem; }
+  .fire-context-card h3 { margin: 0 0 .6rem; font-size: .88rem; text-transform: uppercase; letter-spacing: .07em; color: var(--text-dim); font-weight: 700; }
+  .fc-row { display: flex; gap: .6rem; align-items: baseline; margin-bottom: .35rem; }
+  .fc-label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-dim); white-space: nowrap; min-width: 5.5rem; }
+  .fc-value { font-size: .9rem; line-height: 1.4; }
+  .fc-active { color: var(--accent); font-weight: 700; }
+  .fc-safe   { color: var(--safe); }
+  .fc-source { margin: .6rem 0 0; font-size: .72rem; color: var(--text-dim); line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -1312,6 +1321,28 @@ function renderZoneResult(d) {
       <button class="secondary" id="copy-link">Copy link</button>
     </div>`;
 
+  // Fire context card (Pyrecast: LANDFIRE fuel type + ELMFIRE model)
+  let fireContextHtml = "";
+  const fc = d.fire_context;
+  if (fc) {
+    const fuel = fc.fuel_type;
+    const risk = fc.risk_forecast;
+    const fuelLine = fuel && fuel.fbfm40_code !== null
+      ? `${esc(fuel.description || `Code ${fuel.fbfm40_code}`)}${fuel.fire_behavior ? ` — ${esc(fuel.fire_behavior.toLowerCase())}` : ""}`
+      : "No fuel data for this location";
+    const riskClass = risk.is_active ? "fc-active" : "fc-safe";
+    const riskLine = risk.is_active
+      ? `ELMFIRE model shows fire spread risk · ${risk.max_impacted_structures} structures in potential impact zone`
+      : "ELMFIRE model: no modeled fire spread at this location today";
+    fireContextHtml = `
+    <div class="card fire-context-card">
+      <h3>Background fire data</h3>
+      <div class="fc-row"><span class="fc-label">Fuel type</span><span class="fc-value">${fuelLine}</span></div>
+      <div class="fc-row"><span class="fc-label">Model</span><span class="fc-value ${riskClass}">${riskLine}</span></div>
+      <p class="fc-source">Source: Pyrecast / Pyregence — ELMFIRE model, LANDFIRE 2.5.0 fuels (open access)</p>
+    </div>`;
+  }
+
   const links = d.links || {};
   const linksHtml = links.genasys_evacuation_zone_lookup ? `
     <div class="card">
@@ -1335,6 +1366,7 @@ function renderZoneResult(d) {
     ${actionHtml}
     ${shareHtml}
     ${moreChecklist}
+    ${fireContextHtml}
     ${linksHtml}
     <p class="small" style="margin-top:1rem;opacity:0.7;line-height:1.5">Note: the downwind reading is a flat-earth wind-line approximation. Ridges and canyons change actual fire paths. Always heed official evacuation orders.</p>
   `;
