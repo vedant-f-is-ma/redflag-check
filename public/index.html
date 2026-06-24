@@ -882,6 +882,10 @@ async function runZoneCheck(qs, label) {
       return;
     }
     const data = await res.json();
+    const _sl = document.getElementById("addr-suggest");
+    if (_sl) { _sl.hidden = true; _sl.innerHTML = ""; }
+    const _ai = document.getElementById("address-input");
+    if (_ai) _ai.setAttribute("aria-expanded", "false");
     out.innerHTML = renderZoneResult(data);
     bindShare(label || "your address", data);
     upgradeGeoMap(data, out, getMapZoom());
