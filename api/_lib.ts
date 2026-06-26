@@ -10,7 +10,9 @@ export const USER_AGENT = _contact
   : "redflag-check.info";
 
 // ---------------------------------------------------------------------------
-// Geocoding (US Census, free, no auth)
+// Geocoding — Census street-address geocoder with Geoapify fallback.
+// Census is fast and authoritative for US street addresses but can't resolve
+// city names, ZIP-only, or landmark queries. Geoapify handles those cases.
 // ---------------------------------------------------------------------------
 export interface GeocodeResult {
   lat: number;
@@ -19,26 +21,57 @@ export interface GeocodeResult {
   zip?: string;
 }
 
-export async function geocodeAddress(address: string): Promise<GeocodeResult | null> {
+async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
   const url = new URL("https://geocoding.geo.census.gov/geocoder/locations/onelineaddress");
   url.searchParams.set("address", address);
   url.searchParams.set("benchmark", "Public_AR_Current");
   url.searchParams.set("format", "json");
+  try {
+    const res = await fetch(url.toString(), { headers: { "User-Agent": USER_AGENT } });
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const matches = data?.result?.addressMatches;
+    if (!Array.isArray(matches) || matches.length === 0) return null;
+    const m = matches[0];
+    return {
+      lat: m.coordinates.y,
+      lng: m.coordinates.x,
+      matched_address: m.matchedAddress,
+      zip: m.addressComponents?.zip,
+    };
+  } catch {
+    return null;
+  }
+}
 
-  const res = await fetch(url.toString(), {
-    headers: { "User-Agent": USER_AGENT },
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as any;
-  const matches = data?.result?.addressMatches;
-  if (!Array.isArray(matches) || matches.length === 0) return null;
-  const m = matches[0];
-  return {
-    lat: m.coordinates.y,
-    lng: m.coordinates.x,
-    matched_address: m.matchedAddress,
-    zip: m.addressComponents?.zip,
-  };
+async function geocodeGeoapify(address: string): Promise<GeocodeResult | null> {
+  const key = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(address)}&format=json&limit=1&apiKey=${key}`,
+      { headers: { "User-Agent": USER_AGENT } }
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const results = data?.results;
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const r = results[0];
+    return {
+      lat: r.lat,
+      lng: r.lon,
+      matched_address: r.formatted,
+      zip: r.postcode,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function geocodeAddress(address: string): Promise<GeocodeResult | null> {
+  const census = await geocodeCensus(address);
+  if (census) return census;
+  return geocodeGeoapify(address);
 }
 
 // Reverse geocode lat/lng -> a friendly "near {street}, {city}" label (Geoapify).
