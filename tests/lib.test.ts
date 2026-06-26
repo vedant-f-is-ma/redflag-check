@@ -25,7 +25,7 @@ const squareRing = (cLat: number, cLng: number, h: number): number[][] =>
   [[cLng - h, cLat - h], [cLng + h, cLat - h], [cLng + h, cLat + h], [cLng - h, cLat + h], [cLng - h, cLat - h]];
 const poly = (id: string, ring: number[][]): RedFlagPolygon => ({
   id, event: "Red Flag Warning", headline: "RFW " + id, description: "", instruction: null,
-  starts: "", ends: "", expires: "", severity: "", sender_name: "", areas: [], rings: [ring],
+  starts: "", ends: "", expires: "", severity: "", sender_name: "", areas: [], rings: [ring], source: "polygon",
 });
 const fc = (dir: string, mph: number): ForecastSummary => ({
   next_24h: [{ start_iso: "", end_iso: "", temp_f: 70, wind_speed_mph_max: mph, wind_direction: dir, humidity_pct: 20, short_forecast: "Windy" }],
@@ -261,6 +261,40 @@ describe("fetch-backed helpers", () => {
     mockFetch(() => "ERR");
     expect(await geocodeAddress("x")).toBeNull();
   });
+  test("geocodeAddress falls back to Geoapify when Census finds nothing", async () => {
+    process.env.GEOAPIFY_API_KEY = "testkey";
+    mockFetch((url) => {
+      if (url.includes("census.gov")) return { result: { addressMatches: [] } };
+      return { results: [{ lat: 35.62, lon: -117.67, formatted: "Ridgecrest, CA", postcode: "93555" }] };
+    });
+    const g = await geocodeAddress("Ridgecrest CA");
+    expect(g).toEqual({ lat: 35.62, lng: -117.67, matched_address: "Ridgecrest, CA", zip: "93555" });
+  });
+  test("geocodeAddress Geoapify fallback: empty results -> null", async () => {
+    process.env.GEOAPIFY_API_KEY = "testkey";
+    mockFetch((url) => {
+      if (url.includes("census.gov")) return { result: { addressMatches: [] } };
+      return { results: [] };
+    });
+    expect(await geocodeAddress("nowhere special")).toBeNull();
+  });
+  test("geocodeAddress Geoapify fallback: upstream error -> null", async () => {
+    process.env.GEOAPIFY_API_KEY = "testkey";
+    mockFetch((url) => {
+      if (url.includes("census.gov")) return { result: { addressMatches: [] } };
+      return "ERR";
+    });
+    expect(await geocodeAddress("nowhere special")).toBeNull();
+  });
+  test("geocodeAddress Geoapify fallback: network throw -> null", async () => {
+    process.env.GEOAPIFY_API_KEY = "testkey";
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("census.gov")) return new Response(JSON.stringify({ result: { addressMatches: [] } }), { status: 200 });
+      throw new Error("network");
+    }) as any;
+    expect(await geocodeAddress("nowhere special")).toBeNull();
+  });
   test("reverseGeocode returns a 'near' label / null without key", async () => {
     expect(await reverseGeocode(37.8, -122.2)).toBeNull(); // no key
     process.env.GEOAPIFY_API_KEY = "k";
@@ -311,7 +345,40 @@ describe("fetch-backed helpers", () => {
     const polys = await fetchActiveRedFlagPolygons("CA");
     expect(polys.length).toBe(2);
     expect(polys[0].rings[0].length).toBeGreaterThan(3);
+    expect(polys[0].source).toBe("polygon");
     mockFetch(() => "ERR");
     expect(await fetchActiveRedFlagPolygons("CA")).toEqual([]);
+  });
+  test("fetchActiveRedFlagPolygons resolves zone boundaries for zone-based alerts", async () => {
+    const ring = squareRing(35.6, -117.7, 0.1);
+    mockFetch((url) => {
+      if (url.includes("alerts/active")) return { features: [
+        { id: "z1", properties: { event: "Red Flag Warning", areaDesc: "Indian Wells Valley", geocode: { UGC: ["CAZ298"] } }, geometry: null },
+        { id: "z2", properties: { event: "Red Flag Warning", areaDesc: "Empty", geocode: { UGC: [] } }, geometry: null },
+      ]};
+      if (url.includes("zones/fire/CAZ298")) return { geometry: { type: "Polygon", coordinates: [ring] } };
+      return "ERR";
+    });
+    const polys = await fetchActiveRedFlagPolygons("CA");
+    expect(polys.length).toBe(1);
+    expect(polys[0].source).toBe("zone");
+    expect(polys[0].areas).toEqual(["Indian Wells Valley"]);
+    expect(polys[0].rings.length).toBe(1);
+  });
+  test("fetchActiveRedFlagPolygons handles MultiPolygon zone and failed zone fetch", async () => {
+    const ring = squareRing(35.6, -117.7, 0.1);
+    mockFetch((url) => {
+      if (url.includes("alerts/active")) return { features: [
+        { id: "z1", properties: { event: "Red Flag Warning", areaDesc: "Multi", geocode: { UGC: ["CAZ298", "CAZ299"] } }, geometry: null },
+        { id: "z2", properties: { event: "Red Flag Warning", areaDesc: "AllFail", geocode: { UGC: ["CAZ999"] } }, geometry: null },
+      ]};
+      if (url.includes("CAZ298")) return { geometry: { type: "MultiPolygon", coordinates: [[ring]] } };
+      if (url.includes("CAZ299")) return { geometry: null };
+      return "ERR"; // CAZ999 fails
+    });
+    const polys = await fetchActiveRedFlagPolygons("CA");
+    expect(polys.length).toBe(1);
+    expect(polys[0].source).toBe("zone");
+    expect(polys[0].rings.length).toBe(1); // only CAZ298 resolved
   });
 });
