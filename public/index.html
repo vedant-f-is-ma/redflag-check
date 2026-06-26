@@ -699,11 +699,11 @@
         </div>
         <button class="check-btn-2" id="check-btn">Check</button>
       </div>
-      <p class="hero-meta">Free · no sign-up · official NWS data · not a government agency</p>
+      <p class="hero-meta">Free · no sign-up · uses official NWS data · not affiliated with any government agency</p>
     </div>
     <details class="rfw-explainer">
       <summary>What's a Red Flag Warning?</summary>
-      <p>It means dry, gusty weather that makes wildfires far more likely to start and spread fast. It's a heads-up to be ready, not an evacuation order. This tool tells you whether tonight's warning actually reaches your address.</p>
+      <p>A Red Flag Warning (RFW) is an alert issued by the National Weather Service (NWS) that dangerous conditions are expected within 24 hours — the combination of strong winds, low humidity, and dry vegetation creates an extreme risk for the rapid ignition and spread of wildfire. It's a heads-up to be ready, not an evacuation order. This tool tells you whether the active RFW Affected Area covers your specific address.</p>
     </details>
     <div id="zone-result" role="status" aria-live="polite" aria-atomic="false"></div>
   </section>
@@ -733,15 +733,16 @@
   </section>
 
   <details class="fire-note" role="note">
-    <summary>A warning isn't a fence: why we still say "be ready"</summary>
-    <p>NWS Red Flag Warning polygons are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past nominal polygons until they ran out of fuel or hit the ocean. Treat fire-season nights as fire-weather nights regardless of polygon status, and keep a go-bag ready.</p>
+    <summary>An RFW Affected Area isn't a strict perimeter: why we still say "be ready"</summary>
+    <p>NWS Red Flag Warning Affected Areas are advisory, not boundaries that stop fire. Wind-driven fires (1991 Oakland Hills, 2023 Lahaina, 2025 Palisades) routinely pushed past initial RFW Affected Areas until they ran out of fuel or hit the ocean. Treat RFWs as serious potential fire-weather — keep a go-bag ready and be ready to quickly evacuate. When in doubt, get out.</p>
   </details>
   </main>
 
   <footer>
     Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
     For developers: <a href="/docs">API docs</a> · <a href="/openapi.yaml">OpenAPI spec</a> · <a href="https://github.com/vedant-f-is-ma/redflag-check">GitHub</a><br>
-    For official emergency alerts, sign up for <a href="https://www.ready.gov/alerts">your local emergency alerts</a>. In case of fire, call 911.
+    For official emergency alerts, sign up for <a href="https://www.ready.gov/alerts">your local emergency alerts</a>. In case of fire, call 911.<br>
+    <span style="font-size:.78rem;opacity:.8;">This app is for information only during Red Flag Warnings. Refer to AC Alerts, Genasys Protect notifications, and other official sources of information during active emergencies.</span>
   </footer>
 </div>
 
@@ -1274,7 +1275,7 @@ function renderZoneResult(d) {
   // Compass, always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
-  const compassLegend = compass ? `<p class="compass-legend">📍 your address · outlined polygon = warning area · arrow = wind direction</p>` : "";
+  const compassLegend = compass ? `<p class="compass-legend">📍 your address · outlined area = RFW Affected Area · arrow = wind direction</p>` : "";
 
   // Geo-map (real polygon shape + wind/fire overlay), shared with the school result.
   const geomap = geomapBlock(v, d.location, d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty), "your address");
@@ -1295,7 +1296,7 @@ function renderZoneResult(d) {
   // (distance, wind speed) is now on the SVG.
   let downwindCallout = "";
   if (v.downwind && v.downwind.triggered) {
-    downwindCallout = `<p class="downwind-callout">⚠ Wind is blowing FROM the warning area TOWARD your address. Treat tonight as if you were inside the polygon.</p>`;
+    downwindCallout = `<p class="downwind-callout">⚠ Wind is blowing FROM the RFW Affected Area TOWARD your address. Treat tonight as if you were inside the RFW Affected Area.</p>`;
   }
 
   // One clear action first, derived from the server's expert-vetted checklist (do_now[0]),
@@ -1629,7 +1630,7 @@ function renderBuddyResult(d) {
   const zoneNote = d.friend_zone_status
     ? (d.friend_zone_status.in_red_flag_zone
         ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
-        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active warning polygon.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect polygon boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`)
+        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`)
     : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
   return `
     ${zoneNote}
