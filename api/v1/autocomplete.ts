@@ -21,7 +21,7 @@ export default async function handler(req: Request): Promise<Response> {
   try {
     const g =
       `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(text)}` +
-      `&bias=proximity:-122.2,37.8&filter=rect:-123.0,37.2,-121.6,38.2&limit=5&format=json&apiKey=${key}`;
+      `&bias=proximity:-122.2,37.8&filter=countrycode:us&limit=5&format=json&apiKey=${key}`;
     const res = await fetch(g, { headers: { "User-Agent": USER_AGENT } });
     if (!res.ok) return jsonResponse({ suggestions: [] });
     const data = (await res.json()) as any;
