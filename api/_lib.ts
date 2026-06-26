@@ -298,6 +298,29 @@ export interface RedFlagPolygon {
   areas: string[];
   // GeoJSON polygon: outer ring as array of [lng, lat]. We flatten MultiPolygon to first ring's outer.
   rings: number[][][]; // array of rings; ring 0 is the outer ring
+  // Whether geometry came from the alert itself or was resolved from NWS zone boundaries.
+  source: "polygon" | "zone";
+}
+
+// ---------------------------------------------------------------------------
+// Zone geometry resolution — fallback when an alert has no inline polygon.
+// UGC code format: {STATE}{C|Z}{number}  C=county  Z=fire-weather zone
+// ---------------------------------------------------------------------------
+async function fetchZoneRing(ugcCode: string): Promise<number[][] | null> {
+  const zoneType = ugcCode[2] === "C" ? "county" : "fire";
+  const url = `https://api.weather.gov/zones/${zoneType}/${ugcCode}`;
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    if (!res.ok) return null;
+    const data = (await res.json()) as any;
+    const geom = data?.geometry;
+    if (!geom) return null;
+    if (geom.type === "Polygon") return geom.coordinates[0] ?? null;
+    if (geom.type === "MultiPolygon") return geom.coordinates[0]?.[0] ?? null;
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchActiveRedFlagPolygons(state = "CA"): Promise<RedFlagPolygon[]> {
@@ -308,37 +331,57 @@ export async function fetchActiveRedFlagPolygons(state = "CA"): Promise<RedFlagP
   if (!res.ok) return [];
   const data = (await res.json()) as any;
   const features: any[] = data?.features || [];
-  const out: RedFlagPolygon[] = [];
-  for (const f of features) {
-    const p = f.properties || {};
-    const geom = f.geometry;
-    if (!geom) continue;
-    let rings: number[][][] = [];
-    if (geom.type === "Polygon") {
-      rings = geom.coordinates;
-    } else if (geom.type === "MultiPolygon") {
-      // Use each constituent polygon's outer ring
-      rings = geom.coordinates.map((poly: number[][][]) => poly[0]);
-    } else {
-      continue;
-    }
-    if (!rings || rings.length === 0) continue;
-    out.push({
-      id: f.id || p.id,
-      event: p.event,
-      headline: p.headline,
-      description: p.description,
-      instruction: p.instruction,
-      starts: p.onset || p.effective || p.sent,
-      ends: p.ends || p.expires,
-      expires: p.expires,
-      severity: p.severity,
-      sender_name: p.senderName,
-      areas: (p.areaDesc || "").split(";").map((s: string) => s.trim()),
-      rings,
-    });
-  }
-  return out;
+
+  // Process alerts in parallel so zone-geometry fetches don't serialize.
+  const results = await Promise.all(
+    features.map(async (f: any): Promise<RedFlagPolygon | null> => {
+      const p = f.properties || {};
+      const geom = f.geometry;
+      let rings: number[][][] = [];
+      let source: "polygon" | "zone";
+
+      if (geom) {
+        // Alert includes inline polygon geometry — use it directly.
+        if (geom.type === "Polygon") {
+          rings = geom.coordinates;
+        } else if (geom.type === "MultiPolygon") {
+          rings = geom.coordinates.map((poly: number[][][]) => poly[0]);
+        } else {
+          return null;
+        }
+        source = "polygon";
+      } else {
+        // Zone-based alert: resolve each UGC zone boundary in parallel.
+        const ugcCodes: string[] = p.geocode?.UGC ?? [];
+        if (ugcCodes.length === 0) return null;
+        const zoneRings = (await Promise.all(ugcCodes.map(fetchZoneRing))).filter(
+          (r): r is number[][] => r !== null
+        );
+        if (zoneRings.length === 0) return null;
+        rings = zoneRings;
+        source = "zone";
+      }
+
+      if (rings.length === 0) return null;
+      return {
+        id: f.id || p.id,
+        event: p.event,
+        headline: p.headline,
+        description: p.description,
+        instruction: p.instruction,
+        starts: p.onset || p.effective || p.sent,
+        ends: p.ends || p.expires,
+        expires: p.expires,
+        severity: p.severity,
+        sender_name: p.senderName,
+        areas: (p.areaDesc || "").split(";").map((s: string) => s.trim()),
+        rings,
+        source,
+      };
+    })
+  );
+
+  return results.filter((r): r is RedFlagPolygon => r !== null);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +401,7 @@ export interface NearestPolygonInfo {
   // simplified for payload size. Lets clients draw the ACTUAL warning-area shape
   // (the geo-map view) instead of only a distance/bearing abstraction.
   ring: number[][];
+  source: "polygon" | "zone";
 }
 
 // Cap a ring's vertex count for payload size while preserving overall shape.
@@ -439,6 +483,7 @@ export function classifyVerdict(
           nearest_lat: r.nearest_lat,
           nearest_lng: r.nearest_lng,
           ring: simplifyRing(ring),
+          source: poly.source,
         };
       }
     }
@@ -471,7 +516,7 @@ export function classifyVerdict(
       short_explanation: "Take action tonight: prepare a go-bag and be ready to leave if instructed.",
       nearest_polygon: nearest,
       wind_vector: windVector,
-      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "You are inside the warning polygon." },
+      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "You are inside the active Red Flag Warning area." },
     };
   }
 
