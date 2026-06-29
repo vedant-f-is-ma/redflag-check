@@ -8,6 +8,7 @@
     "dev": "vercel dev",
     "deploy": "vercel --prod",
     "test": "bun test",
+    "test:live": "RUN_LIVE_RFW=1 bun test live-rfw-geographic",
     "test:coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit"
   },
