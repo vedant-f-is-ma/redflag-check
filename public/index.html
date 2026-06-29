@@ -469,6 +469,10 @@
   /* While the real basemap renders (cold ~3-4s), label the canvas as loading so the
      SVG-then-map upgrade reads as intentional, not a half-rendered glitch. */
   .geomap-canvas.geomap-loading { position: relative; }
+  /* Safe results have no instant SVG (no polygon to draw), so the canvas is empty while
+     the location basemap loads — give it height + a neutral fill so the loading pill
+     sits in a placeholder box instead of collapsing to nothing. */
+  .geomap-canvas.geomap-loading:empty { min-height: 220px; background: var(--bg-card); border-radius: 14px; }
   .geomap-canvas.geomap-loading::after {
     content: "Loading map\2026";
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -1269,10 +1273,15 @@ function upgradeGeoMap(data, container, zoomLevel) {
 // Shared geo-map block (zoom stepper + canvas + caption). Used by both the address
 // result and the school result, a school is just a named lat/lng with a warning nearby.
 function geomapBlock(verdict, location, fullMapLink, place) {
+  if (!location || !isFinite(location.lat) || !isFinite(location.lng)) return "";
   const np = verdict && verdict.nearest_polygon;
   const ringPresent = np && Array.isArray(np.ring) && np.ring.length >= 3 && isFinite(np.distance_mi) && np.distance_mi <= 60;
-  if (!ringPresent) return "";
   const link = fullMapLink || "https://www.watchduty.org";
+  // With a warning, show the affected area; without one, show "here's your area" so a safe
+  // result still renders a map of the user's location instead of looking like a failed load.
+  const caption = ringPresent
+    ? `Active warning area near ${place || "your address"}.`
+    : `Your location — no active warning area to show.`;
   return `
       <div class="geomap-wrapper">
         <div class="geomap-zoom" role="group" aria-label="Map zoom">
@@ -1281,7 +1290,7 @@ function geomapBlock(verdict, location, fullMapLink, place) {
           <button type="button" class="geomap-zoom-btn" data-zdir="in" aria-label="Zoom in">+</button>
         </div>
         <div class="geomap-canvas">${geoMapSVG(verdict, location, getMapZoom())}</div>
-        <p class="geomap-caption">Active warning area near ${place || "your address"}. <a href="${esc(link)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
+        <p class="geomap-caption">${caption} <a href="${esc(link)}" target="_blank" rel="noopener">Open a full interactive map ↗</a></p>
       </div>`;
 }
 
@@ -1295,7 +1304,9 @@ function renderZoneResult(d) {
   // Compass, always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
   const compass = hasGeometry ? `<div class="compass-wrapper">${compassSVG(v)}</div>` : "";
-  const compassLegend = compass ? `<p class="compass-legend">📍 your address · outlined area = RFW Affected Area · arrow = wind direction</p>` : "";
+  // Only mention the outlined warning area in the legend when one is actually drawn.
+  const hasPolygonNearby = v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi) && v.nearest_polygon.distance_mi <= 60;
+  const compassLegend = compass ? `<p class="compass-legend">📍 your address${hasPolygonNearby ? " · outlined area = RFW Affected Area" : ""} · arrow = wind direction</p>` : "";
 
   // Geo-map (real polygon shape + wind/fire overlay), shared with the school result.
   const geomap = geomapBlock(v, d.location, d.links && (d.links.genasys_evacuation_zone_lookup || d.links.watch_duty), "your address");

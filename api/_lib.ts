@@ -844,9 +844,24 @@ export interface MapViews {
 export function buildStaticMapUrls(userLat: number, userLng: number, nearest: NearestPolygonInfo | null): MapViews | null {
   const geoapifyKey = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
   if (!geoapifyKey) return null;                        // no provider key -> client keeps the SVG
-  // Only draw when there's an actual polygon close enough to be useful (mirrors the SVG gate).
-  if (!nearest || !Array.isArray(nearest.ring) || nearest.ring.length < 3) return null;
-  if (!isFinite(nearest.distance_mi) || nearest.distance_mi > 60) return null;
+
+  const W = 640, H = 420;
+  const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
+
+  // No usable warning polygon (safe result, or a polygon too far to draw): render a
+  // user-centered "here's your area" basemap so a safe lookup still shows a map instead of
+  // looking like a failed load. Marker only, no geometry, fixed neighborhood->block zooms.
+  const hasPolygon = !!nearest && Array.isArray(nearest.ring) && nearest.ring.length >= 3
+    && isFinite(nearest.distance_mi) && nearest.distance_mi <= 60;
+  if (!hasPolygon) {
+    const userMap = (z: number) =>
+      `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
+      `&width=${W}&height=${H}&center=lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)}` +
+      `&zoom=${z.toFixed(2)}&marker=${marker}&apiKey=${geoapifyKey}`;
+    const mkU = (z: number): MapView => ({ urls: [userMap(z)], you_px: [W / 2, H / 2] });
+    return { wide: mkU(10.5), area: mkU(12.5), close: mkU(14.5), closer: mkU(16) };
+  }
+  if (!nearest) return null; // narrowing for TS; hasPolygon already guarantees non-null
 
   const ring = simplifyRing(nearest.ring, 48); // fewer points = faster Geoapify render + shorter URL
 
@@ -869,7 +884,6 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   const padLng = Math.max((maxLng - minLng) * 0.12, 0.01);
   minLat -= padLat; maxLat += padLat; minLng -= padLng; maxLng += padLng;
 
-  const W = 640, H = 420;
   // Center EVERY view on the address so the user is always at the image center.
   // This is robust to the provider's framing/zoom quirks (which don't match a naive
   // Mercator projection), and lets the client anchor the wind arrow at the center.
@@ -880,7 +894,6 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   // --- Geoapify (light/minimal style, free tier, no card) ---
   const polyCoords = ring.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(",");
   const geometry = `polygon:${polyCoords};linecolor:%23d7261a;linewidth:3;fillcolor:%23ff3b30;fillopacity:0.12`;
-  const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
   const geoapify = (z: number) =>
     `https://maps.geoapify.com/v1/staticmap?style=osm-bright-grey` +
     `&width=${W}&height=${H}&center=lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)}` +

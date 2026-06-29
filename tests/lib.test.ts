@@ -148,11 +148,17 @@ describe("buildStaticMapUrls", () => {
   test("null without a key", () => {
     expect(buildStaticMapUrls(37.7, -122.0, nearest)).toBeNull();
   });
-  test("null when no ring / far / missing", () => {
+  test("user-centered map (marker, no geometry) when no usable polygon", () => {
     process.env.GEOAPIFY_API_KEY = "k";
-    expect(buildStaticMapUrls(37.7, -122.0, null)).toBeNull();
-    expect(buildStaticMapUrls(37.7, -122.0, { ...nearest, distance_mi: 99 })).toBeNull();
-    expect(buildStaticMapUrls(37.7, -122.0, { ...nearest, ring: [[0, 0]] })).toBeNull();
+    // safe result / polygon too far / invalid ring all fall back to a "here's your area" map
+    for (const arg of [null, { ...nearest, distance_mi: 99 }, { ...nearest, ring: [[0, 0]] }]) {
+      const v = buildStaticMapUrls(37.7, -122.0, arg as any);
+      expect(v).not.toBeNull();
+      expect(Object.keys(v!).sort()).toEqual(["area", "close", "closer", "wide"]);
+      expect(v!.area.urls[0]).toContain("apiKey=k");
+      expect(v!.area.urls[0]).toContain("marker=");
+      expect(v!.area.urls[0]).not.toContain("geometry=polygon");
+    }
   });
   test("four zoom views with the key in each url", () => {
     process.env.GEOAPIFY_API_KEY = "secretkey";

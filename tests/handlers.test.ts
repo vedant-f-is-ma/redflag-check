@@ -34,12 +34,22 @@ const baseForecast = { "/points/": NWS_POINTS, "hourly-x": NWS_HOURLY };
 const req = (path: string, init?: any) => new Request("https://redflag-check.info" + path, init);
 
 describe("zone-check", () => {
-  test("address path returns a verdict (map_views null without key)", async () => {
+  test("address path returns a verdict; no map without a provider key", async () => {
+    delete process.env.GEOAPIFY_API_KEY;
     routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
     const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
     expect(d.verdict.state).toBe("safe_tonight");
     expect(d.location.matched_address).toContain("ALLSTON");
     expect(d.map_views).toBeNull();
+  });
+  test("safe result still gets a user-centered map (marker, no polygon) when a key is set", async () => {
+    process.env.GEOAPIFY_API_KEY = "k";
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.state).toBe("safe_tonight");
+    expect(d.map_views).not.toBeNull();
+    expect(d.map_views.area.urls[0]).toContain("marker=");
+    expect(d.map_views.area.urls[0]).not.toContain("geometry=polygon");
   });
   test("lat/lng path reverse-geocodes a label with a key", async () => {
     process.env.GEOAPIFY_API_KEY = "k";
