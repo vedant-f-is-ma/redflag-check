@@ -775,8 +775,8 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
     return {
       category: "adjacent",
       do_now: [
-        "Your address is adjacent to the active NWS Red Flag Warning polygon.",
-        "Wind-driven fires do not stop at polygon boundaries. The 1991 Oakland Hills fire, the 2023 Lahaina fire, and the 2025 Palisades fire all pushed past nominal boundaries in wind events. Treat tonight as a fire-weather night.",
+        "Your address is adjacent to the active RFW Affected Area.",
+        "Wind-driven fires do not stop at the RFW Affected Area boundary. The 1991 Oakland Hills fire, the 2023 Lahaina fire, and the 2025 Palisades fire all pushed past nominal boundaries in wind events. Treat tonight as a fire-weather night.",
         "Keep your phone charged and bring it to bed with sound on.",
         "Sign up for your county's emergency alerts if you haven't (link below).",
         "Know your Genasys zone in case conditions change.",
@@ -793,14 +793,14 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
   return {
     category: "out_of_zone",
     do_now: [
-      "Your address is outside the active NWS Red Flag Warning polygon.",
-      "Important: this does NOT mean fire-safe. NWS polygons are advisory, not boundaries that stop fire. The 1991 Oakland Hills fire, Lahaina, and the Palisades fire all pushed past nominal boundaries in wind events until they ran out of fuel or hit the ocean. During fire season, keep a go-bag ready regardless of polygon status.",
+      "Your address is outside the active RFW Affected Area.",
+      "Important: this does NOT mean fire-safe. NWS RFW Affected Areas are advisory, not boundaries that stop fire. The 1991 Oakland Hills fire, Lahaina, and the Palisades fire all pushed past nominal boundaries in wind events until they ran out of fuel or hit the ocean. During fire season, keep a go-bag ready regardless of where the Affected Area boundary falls.",
       "Tonight is still a fire-weather night in your area. Avoid sparking activities outdoors.",
-      "Text a neighbor in the hills. They are in the active polygon and pre-positioning matters most in the next few hours.",
+      "Text a neighbor in the hills. They are in the active RFW Affected Area and pre-positioning matters most in the next few hours.",
       "Sign up for your county's emergency alerts in case conditions expand (link below).",
     ],
     do_not: [
-      "Do not assume polygon-outside means safe. A wind-driven fire can reach you even from an active polygon next door.",
+      "Do not assume being outside the RFW Affected Area means safe. A wind-driven fire can reach you even from an active Affected Area next door.",
     ],
     if_evacuation_called: [
       "If your area becomes affected, check Genasys Protect for your zone (link below).",
