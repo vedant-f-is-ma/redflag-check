@@ -466,6 +466,23 @@
     text-align: center;
   }
   .geomap-caption a { color: var(--accent); white-space: nowrap; }
+  /* While the real basemap renders (cold ~3-4s), label the canvas as loading so the
+     SVG-then-map upgrade reads as intentional, not a half-rendered glitch. */
+  .geomap-canvas.geomap-loading { position: relative; }
+  .geomap-canvas.geomap-loading::after {
+    content: "Loading map\2026";
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: var(--bg-card); color: var(--text-dim);
+    font-size: .78rem; font-weight: 600; line-height: 1;
+    padding: .3rem .65rem; border-radius: 999px; border: 1px solid var(--border);
+    pointer-events: none; animation: geomap-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes geomap-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+  @keyframes geomap-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .geomap-mapwrap { animation: geomap-fade-in .35s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .geomap-canvas.geomap-loading::after, .geomap-mapwrap { animation: none; }
+  }
   .situation-card .verdict-explanation {
     margin: 0;
     font-size: .95rem;
@@ -1210,9 +1227,11 @@ function upgradeGeoMap(data, container, zoomLevel) {
   const canvas = root.querySelector(".geomap-canvas");
   if (!canvas) return;
   const verdict = data.verdict || {};
+  canvas.classList.add("geomap-loading");       // "Loading map…" until the real basemap is in
+  const stopLoading = () => canvas.classList.remove("geomap-loading");
   let i = 0;
   (function tryNext() {
-    if (i >= urls.length) return;               // exhausted, keep the SVG
+    if (i >= urls.length) { stopLoading(); return; }   // exhausted, keep the SVG
     const url = urls[i++];
     const img = new Image();
     let settled = false;
@@ -1228,6 +1247,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
       const overlay = mapOverlay(view.you_px, verdict);
       if (overlay) wrap.insertAdjacentHTML("beforeend", overlay);
       canvas.innerHTML = "";
+      stopLoading();
       canvas.appendChild(wrap);
       // The map now carries geography + polygon + address + wind + fire direction,
       // so the abstract compass is redundant, hide it.
