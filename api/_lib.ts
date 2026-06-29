@@ -19,6 +19,20 @@ export interface GeocodeResult {
   lng: number;
   matched_address: string;
   zip?: string;
+  // 2-letter state code (e.g. "CA", "AZ"). Used to scope the regional Red Flag
+  // Warning fetch when the address is NOT inside a warning (adjacency/downwind).
+  state?: string;
+}
+
+// Normalize a provider's state field to a bare 2-letter code (what NWS area= wants).
+// Census returns "CA"; Geoapify's state_code is usually "CA" but can be ISO 3166-2
+// with a country prefix ("US-CA") — take the trailing subdivision. Returns undefined
+// for anything that isn't a clean 2-letter code so we never pass garbage to NWS.
+function normStateCode(raw: unknown): string | undefined {
+  if (!raw) return undefined;
+  const s = String(raw).toUpperCase().trim();
+  const code = s.includes("-") ? s.slice(s.lastIndexOf("-") + 1) : s;
+  return /^[A-Z]{2}$/.test(code) ? code : undefined;
 }
 
 async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
@@ -38,6 +52,7 @@ async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
       lng: m.coordinates.x,
       matched_address: m.matchedAddress,
       zip: m.addressComponents?.zip,
+      state: normStateCode(m.addressComponents?.state),
     };
   } catch {
     return null;
@@ -62,6 +77,7 @@ async function geocodeGeoapify(address: string): Promise<GeocodeResult | null> {
       lng: r.lon,
       matched_address: r.formatted,
       zip: r.postcode,
+      state: normStateCode(r.state_code),
     };
   } catch {
     return null;
@@ -74,9 +90,16 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult | n
   return geocodeGeoapify(address);
 }
 
-// Reverse geocode lat/lng -> a friendly "near {street}, {city}" label (Geoapify).
-// Lets a "use my location" check confirm WHERE it checked. null if no key or failure.
-export async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+// Reverse geocode lat/lng -> a friendly "near {street}, {city}" label + the state
+// code (Geoapify). The label lets a "use my location" check confirm WHERE it
+// checked; the state scopes the out-of-zone regional Red Flag fetch so geolocation
+// users still get nearest/adjacency/downwind (not just in_zone). null if no key,
+// upstream failure, or no usable label could be built.
+export interface ReverseGeocodeResult {
+  label: string;
+  state: string | undefined;
+}
+export async function reverseGeocode(lat: number, lng: number): Promise<ReverseGeocodeResult | null> {
   const key = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
   if (!key) return null;
   try {
@@ -88,12 +111,16 @@ export async function reverseGeocode(lat: number, lng: number): Promise<string |
     const data = (await res.json()) as any;
     const r = data?.results && data.results[0];
     if (!r) return null;
+    const state = normStateCode(r.state_code);
     const street = r.street || r.suburb || r.neighbourhood || r.district || r.address_line1;
     const city = r.city || r.town || r.village || r.county;
-    if (street && city) return `near ${street}, ${city}`;
-    if (street) return `near ${street}`;
-    if (r.city) return `near ${r.city}`;
-    return r.formatted ? `near ${r.formatted}` : null;
+    let label: string | null = null;
+    if (street && city) label = `near ${street}, ${city}`;
+    else if (street) label = `near ${street}`;
+    else if (r.city) label = `near ${r.city}`;
+    else if (r.formatted) label = `near ${r.formatted}`;
+    if (!label) return null;
+    return { label, state };
   } catch {
     return null;
   }
@@ -116,6 +143,10 @@ export interface NWSAlert {
   expires: string;
   sender_name: string;
   areas: string[];
+  // NWS Universal Geographic Codes for the affected zones (e.g. ["AZZ112", ...]).
+  // Lets us resolve the point's OWN active warnings to zone geometry without a
+  // separate per-state fetch. Empty array when the alert carries no UGC codes.
+  ugc: string[];
 }
 
 export async function fetchAlertsAtPoint(lat: number, lng: number): Promise<NWSAlert[]> {
@@ -142,6 +173,7 @@ export async function fetchAlertsAtPoint(lat: number, lng: number): Promise<NWSA
       expires: p.expires,
       sender_name: p.senderName,
       areas: (p.areaDesc || "").split(";").map((s: string) => s.trim()),
+      ugc: (p.geocode?.UGC ?? []) as string[],
     };
   });
 }
@@ -356,8 +388,76 @@ async function fetchZoneRing(ugcCode: string): Promise<number[][] | null> {
   }
 }
 
-export async function fetchActiveRedFlagPolygons(state = "CA"): Promise<RedFlagPolygon[]> {
-  const url = `https://api.weather.gov/alerts/active?area=${encodeURIComponent(state)}&event=Red%20Flag%20Warning`;
+// Normalized input to buildRedFlagPolygon: an alert's metadata plus EITHER inline
+// geometry (polygon-based RFW) OR UGC codes (zone-based RFW) to resolve from.
+interface RedFlagSource {
+  id: string;
+  event: string;
+  headline: string;
+  description: string;
+  instruction: string | null;
+  starts: string;
+  ends: string;
+  expires: string;
+  severity: string;
+  sender_name: string;
+  areas: string[];
+  geometry: any | null; // inline GeoJSON geometry, or null/undefined for zone-based
+  ugc: string[];        // UGC codes used to resolve geometry when geometry is null
+}
+
+// Resolve one alert to a RedFlagPolygon. Inline polygon geometry is used directly;
+// otherwise each UGC zone boundary is resolved in parallel. Returns null if neither
+// inline geometry nor any resolvable zone produced a ring.
+async function buildRedFlagPolygon(src: RedFlagSource): Promise<RedFlagPolygon | null> {
+  let rings: number[][][] = [];
+  let source: "polygon" | "zone";
+
+  if (src.geometry) {
+    if (src.geometry.type === "Polygon") {
+      rings = src.geometry.coordinates;
+    } else if (src.geometry.type === "MultiPolygon") {
+      rings = src.geometry.coordinates.map((poly: number[][][]) => poly[0]);
+    } else {
+      return null;
+    }
+    source = "polygon";
+  } else {
+    if (src.ugc.length === 0) return null;
+    const zoneRings = (await Promise.all(src.ugc.map(fetchZoneRing))).filter(
+      (r): r is number[][] => r !== null
+    );
+    if (zoneRings.length === 0) return null;
+    rings = zoneRings;
+    source = "zone";
+  }
+
+  if (rings.length === 0) return null;
+  return {
+    id: src.id,
+    event: src.event,
+    headline: src.headline,
+    description: src.description,
+    instruction: src.instruction,
+    starts: src.starts,
+    ends: src.ends,
+    expires: src.expires,
+    severity: src.severity,
+    sender_name: src.sender_name,
+    areas: src.areas,
+    rings,
+    source,
+  };
+}
+
+// Fetch active Red Flag Warnings WITH geometry for one or more state/area codes.
+// `area` accepts a single code ("CA") or several (["AZ","NM","CO"]); the NWS
+// alerts endpoint takes a comma-separated list. Used for the OUT-of-zone path
+// (nearest / adjacency / downwind) where we need warnings near — but not
+// necessarily containing — the point.
+export async function fetchActiveRedFlagPolygons(area: string | string[] = "CA"): Promise<RedFlagPolygon[]> {
+  const areaParam = Array.isArray(area) ? area.join(",") : area;
+  const url = `https://api.weather.gov/alerts/active?area=${encodeURIComponent(areaParam)}&event=Red%20Flag%20Warning`;
   const res = await fetch(url, {
     headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
   });
@@ -367,36 +467,9 @@ export async function fetchActiveRedFlagPolygons(state = "CA"): Promise<RedFlagP
 
   // Process alerts in parallel so zone-geometry fetches don't serialize.
   const results = await Promise.all(
-    features.map(async (f: any): Promise<RedFlagPolygon | null> => {
+    features.map((f: any) => {
       const p = f.properties || {};
-      const geom = f.geometry;
-      let rings: number[][][] = [];
-      let source: "polygon" | "zone";
-
-      if (geom) {
-        // Alert includes inline polygon geometry — use it directly.
-        if (geom.type === "Polygon") {
-          rings = geom.coordinates;
-        } else if (geom.type === "MultiPolygon") {
-          rings = geom.coordinates.map((poly: number[][][]) => poly[0]);
-        } else {
-          return null;
-        }
-        source = "polygon";
-      } else {
-        // Zone-based alert: resolve each UGC zone boundary in parallel.
-        const ugcCodes: string[] = p.geocode?.UGC ?? [];
-        if (ugcCodes.length === 0) return null;
-        const zoneRings = (await Promise.all(ugcCodes.map(fetchZoneRing))).filter(
-          (r): r is number[][] => r !== null
-        );
-        if (zoneRings.length === 0) return null;
-        rings = zoneRings;
-        source = "zone";
-      }
-
-      if (rings.length === 0) return null;
-      return {
+      return buildRedFlagPolygon({
         id: f.id || p.id,
         event: p.event,
         headline: p.headline,
@@ -408,12 +481,42 @@ export async function fetchActiveRedFlagPolygons(state = "CA"): Promise<RedFlagP
         severity: p.severity,
         sender_name: p.senderName,
         areas: (p.areaDesc || "").split(";").map((s: string) => s.trim()),
-        rings,
-        source,
-      };
+        geometry: f.geometry,
+        ugc: (p.geocode?.UGC ?? []) as string[],
+      });
     })
   );
 
+  return results.filter((r): r is RedFlagPolygon => r !== null);
+}
+
+// Resolve the point's OWN active warnings (as returned by fetchAlertsAtPoint) into
+// drawable/measurable polygons. The point query authoritatively answers "is this
+// point inside an active warning"; this turns that yes into the actual zone geometry
+// so the map can draw it and we can measure to its edges. Zone-based alerts resolve
+// via their UGC codes. If resolution yields nothing (zone fetch failed), the caller
+// still treats the point as in_zone from the alert's existence — geometry is never
+// the gate on the safety verdict.
+export async function resolveAlertsToPolygons(alerts: NWSAlert[]): Promise<RedFlagPolygon[]> {
+  const results = await Promise.all(
+    alerts.map((a) =>
+      buildRedFlagPolygon({
+        id: a.id,
+        event: a.event,
+        headline: a.headline,
+        description: a.description,
+        instruction: a.instruction,
+        starts: a.starts,
+        ends: a.ends,
+        expires: a.expires,
+        severity: a.severity,
+        sender_name: a.sender_name,
+        areas: a.areas,
+        geometry: null,
+        ugc: a.ugc,
+      })
+    )
+  );
   return results.filter((r): r is RedFlagPolygon => r !== null);
 }
 
@@ -482,7 +585,13 @@ export function classifyVerdict(
   userLat: number,
   userLng: number,
   polygons: RedFlagPolygon[],
-  forecast: ForecastSummary | null
+  forecast: ForecastSummary | null,
+  // Authoritative in_zone signal from the NWS point query: when the point's own
+  // active-alert lookup returned a Red Flag Warning, the point IS inside an active
+  // warning regardless of local point-in-polygon math (which can miss on zone
+  // geometry that failed to resolve, multi-part zones, or simplification). This is
+  // the fix for zone-based (UGC-only) warnings reading as safe_tonight.
+  forceInZone = false
 ): Verdict {
   // Step 1: is the user inside ANY active polygon?
   let inZonePolygon: RedFlagPolygon | null = null;
@@ -542,7 +651,11 @@ export function classifyVerdict(
   }
 
   // Step 4: build the verdict
-  if (inZonePolygon) {
+  // forceInZone (point query saw an RFW) is authoritative; inZonePolygon is the
+  // local geometry confirmation. Either one means in_zone. We return here BEFORE
+  // any downwind/adjacency analysis so a forced in_zone never gets a downwind
+  // headline computed against some far polygon.
+  if (forceInZone || inZonePolygon) {
     return {
       state: "in_zone",
       headline: "Your address is inside the active Red Flag Warning.",

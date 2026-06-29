@@ -47,11 +47,91 @@ describe("zone-check", () => {
     const d = await (await zoneCheck(req("/api/v1/zone-check?lat=37.8&lng=-122.18"))).json();
     expect(d.location.matched_address).toBe("near Skyline Blvd, Oakland");
   });
+  test("lat/lng out-of-zone: reverse-geocoded state restores nearest/adjacency", async () => {
+    // The point isn't in a warning, but a warning sits ~4 mi away. Geolocation users
+    // must still get the "adjacent / stay alert" signal — this regressed when the
+    // verdict stopped fetching CA polygons unconditionally; the reverse-geocoded
+    // state now scopes the regional fetch on the lat/lng path.
+    process.env.GEOAPIFY_API_KEY = "k";
+    routeFetch({
+      "alerts/active?point": EMPTY,
+      "geoapify.com/v1/geocode/reverse": { results: [{ street: "Skyline Blvd", city: "Oakland", state_code: "CA" }] },
+      "alerts/active?area": { features: [
+        { id: "near", properties: { event: "Red Flag Warning", areaDesc: "Hills" }, geometry: { type: "Polygon", coordinates: [[[-122.10, 37.78], [-122.06, 37.78], [-122.06, 37.82], [-122.10, 37.82], [-122.10, 37.78]]] } },
+      ] },
+      "/points/": NWS_POINTS,
+      "hourly-x": { properties: { periods: [{ startTime: "t", endTime: "t2", temperature: 65, windSpeed: "8 mph", windDirection: "W", relativeHumidity: { value: 40 }, shortForecast: "Calm" }] } },
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?lat=37.8&lng=-122.18"))).json();
+    expect(d.verdict.state).toBe("adjacent");
+    expect(d.verdict.nearest_polygon).not.toBeNull();
+  });
   test("no params -> 400, bad geocode -> 422, bad coords -> 422", async () => {
     expect((await zoneCheck(req("/api/v1/zone-check"))).status).toBe(400);
     routeFetch({ "geocoding.geo.census.gov": { result: { addressMatches: [] } } });
     expect((await zoneCheck(req("/api/v1/zone-check?address=nowhere"))).status).toBe(422);
     expect((await zoneCheck(req("/api/v1/zone-check?lat=abc&lng=xyz"))).status).toBe(422);
+  });
+
+  // --- Regression: non-California zone-based (UGC-only) Red Flag Warning. ---
+  // Live 2026-06-28, NWS had 26 active RFWs in AZ/NM/CO, all geometry:null/UGC-only,
+  // and addresses inside them (e.g. Winslow, AZ) returned safe_tonight because the
+  // verdict only consulted California polygons. The point query DID see the warning.
+  const WINSLOW_CENSUS = { result: { addressMatches: [{ coordinates: { x: -110.6974, y: 35.0242 }, matchedAddress: "WINSLOW, AZ", addressComponents: { zip: "86047", state: "AZ" } }] } };
+  const AZ_ZONE_RING = [[-111.0, 34.7], [-110.4, 34.7], [-110.4, 35.3], [-111.0, 35.3], [-111.0, 34.7]]; // contains Winslow
+  const AZ_POINT_RFW = { features: [
+    { id: "az-rfw", properties: { event: "Red Flag Warning", headline: "RFW Little Colorado River Valley in Navajo County", areaDesc: "Little Colorado River Valley in Navajo County", geocode: { UGC: ["AZZ113"] } }, geometry: null },
+  ] };
+
+  test("non-CA zone-based RFW at the address reads in_zone (was safe_tonight)", async () => {
+    routeFetch({
+      "geocoding.geo.census.gov": WINSLOW_CENSUS,
+      "alerts/active?point": AZ_POINT_RFW,
+      "zones/fire/AZZ113": { geometry: { type: "Polygon", coordinates: [AZ_ZONE_RING] } },
+      ...baseForecast,
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=Winslow+AZ"))).json();
+    expect(d.verdict.state).toBe("in_zone");
+    expect(d.in_red_flag_zone).toBe(true);
+    expect(d.verdict.nearest_polygon).not.toBeNull();      // geometry resolved -> map can draw
+    expect(d.verdict.nearest_polygon.source).toBe("zone");
+    expect(d.alerts.length).toBe(1);
+  });
+  test("lat/lng inside a zone-based RFW reads in_zone", async () => {
+    routeFetch({
+      "alerts/active?point": AZ_POINT_RFW,
+      "zones/fire/AZZ113": { geometry: { type: "Polygon", coordinates: [AZ_ZONE_RING] } },
+      ...baseForecast,
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?lat=35.0242&lng=-110.6974"))).json();
+    expect(d.verdict.state).toBe("in_zone");
+    expect(d.in_red_flag_zone).toBe(true);
+  });
+  test("safety backstop: in_zone holds even if zone geometry fails to resolve", async () => {
+    routeFetch({
+      "geocoding.geo.census.gov": WINSLOW_CENSUS,
+      "alerts/active?point": AZ_POINT_RFW,
+      "zones/fire/AZZ113": "ERR",   // geometry resolution down — must NOT gate the verdict
+      ...baseForecast,
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=Winslow+AZ"))).json();
+    expect(d.verdict.state).toBe("in_zone");
+    expect(d.in_red_flag_zone).toBe(true);
+    expect(d.verdict.nearest_polygon).toBeNull(); // no geometry, but still flagged
+  });
+  test("out-of-zone: regional fetch scoped to the geocoded state finds the nearest warning", async () => {
+    routeFetch({
+      "geocoding.geo.census.gov": WINSLOW_CENSUS,   // AZ, at Winslow
+      "alerts/active?point": EMPTY,                  // point itself not in a warning
+      "alerts/active?area": { features: [           // but AZ has a warning ~150mi away
+        { id: "az-far", properties: { event: "Red Flag Warning", areaDesc: "Far AZ zone" }, geometry: { type: "Polygon", coordinates: [[[-112.1, 32.9], [-111.9, 32.9], [-111.9, 33.1], [-112.1, 33.1], [-112.1, 32.9]]] } },
+      ] },
+      ...baseForecast,
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=Winslow+AZ"))).json();
+    expect(d.verdict.state).toBe("safe_tonight");
+    expect(d.verdict.nearest_polygon).not.toBeNull();        // distance/bearing computed nationwide
+    expect(d.verdict.nearest_polygon.source).toBe("polygon");
   });
 });
 

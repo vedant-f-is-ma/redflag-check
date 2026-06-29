@@ -88,7 +88,10 @@ export default async function handler(req: Request): Promise<Response> {
 
   // A school is just a named lat/lng, so compute the same 4-state verdict + map the
   // address path does, the result can then show the geo-map + wind/fire overlay.
-  const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast);
+  // Pass the point-query in_zone result as the authoritative signal so the verdict
+  // stays consistent with `in_red_flag_zone` even if the CA polygon set's geometry
+  // resolution misses (zone-based warning that failed to resolve, multi-part zone).
+  const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast, inZone);
   const map_views = buildStaticMapUrls(school.lat, school.lng, verdict.nearest_polygon);
 
   return jsonResponse({

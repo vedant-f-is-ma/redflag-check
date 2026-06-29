@@ -1,7 +1,7 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import {
   geocodeAddress, reverseGeocode, fetchAlertsAtPoint, fetchForecastSummary,
-  fetchActiveRedFlagPolygons, haversineMiles, bearingDeg, bearingToCompass,
+  fetchActiveRedFlagPolygons, resolveAlertsToPolygons, haversineMiles, bearingDeg, bearingToCompass,
   compassToBearing, angularDiff, pointInPolygon, pointToPolygonNearest,
   classifyVerdict, buildActionChecklist, simplifyRing, buildStaticMapUrls,
   wgs84ToEPSG3310, fetchPyrecastData,
@@ -250,10 +250,10 @@ describe("fetchPyrecastData", () => {
 });
 
 describe("fetch-backed helpers", () => {
-  test("geocodeAddress maps a Census match", async () => {
-    mockFetch(() => ({ result: { addressMatches: [{ coordinates: { x: -122.27, y: 37.87 }, matchedAddress: "1980 ALLSTON WAY, BERKELEY", addressComponents: { zip: "94704" } }] } }));
+  test("geocodeAddress maps a Census match (incl. state)", async () => {
+    mockFetch(() => ({ result: { addressMatches: [{ coordinates: { x: -122.27, y: 37.87 }, matchedAddress: "1980 ALLSTON WAY, BERKELEY", addressComponents: { zip: "94704", state: "CA" } }] } }));
     const g = await geocodeAddress("1980 Allston Way");
-    expect(g).toEqual({ lat: 37.87, lng: -122.27, matched_address: "1980 ALLSTON WAY, BERKELEY", zip: "94704" });
+    expect(g).toEqual({ lat: 37.87, lng: -122.27, matched_address: "1980 ALLSTON WAY, BERKELEY", zip: "94704", state: "CA" });
   });
   test("geocodeAddress returns null on no match / error", async () => {
     mockFetch(() => ({ result: { addressMatches: [] } }));
@@ -265,10 +265,10 @@ describe("fetch-backed helpers", () => {
     process.env.GEOAPIFY_API_KEY = "testkey";
     mockFetch((url) => {
       if (url.includes("census.gov")) return { result: { addressMatches: [] } };
-      return { results: [{ lat: 35.62, lon: -117.67, formatted: "Ridgecrest, CA", postcode: "93555" }] };
+      return { results: [{ lat: 35.62, lon: -117.67, formatted: "Ridgecrest, CA", postcode: "93555", state_code: "ca" }] };
     });
     const g = await geocodeAddress("Ridgecrest CA");
-    expect(g).toEqual({ lat: 35.62, lng: -117.67, matched_address: "Ridgecrest, CA", zip: "93555" });
+    expect(g).toEqual({ lat: 35.62, lng: -117.67, matched_address: "Ridgecrest, CA", zip: "93555", state: "CA" });
   });
   test("geocodeAddress Geoapify fallback: empty results -> null", async () => {
     process.env.GEOAPIFY_API_KEY = "testkey";
@@ -295,15 +295,17 @@ describe("fetch-backed helpers", () => {
     }) as any;
     expect(await geocodeAddress("nowhere special")).toBeNull();
   });
-  test("reverseGeocode returns a 'near' label / null without key", async () => {
+  test("reverseGeocode returns a 'near' label + state / null without key", async () => {
     expect(await reverseGeocode(37.8, -122.2)).toBeNull(); // no key
     process.env.GEOAPIFY_API_KEY = "k";
-    mockFetch(() => ({ results: [{ street: "Skyline Blvd", city: "Oakland", formatted: "x" }] }));
-    expect(await reverseGeocode(37.8, -122.2)).toBe("near Skyline Blvd, Oakland");
-    mockFetch(() => ({ results: [{ city: "Oakland" }] }));
-    expect(await reverseGeocode(37.8, -122.2)).toBe("near Oakland");
+    mockFetch(() => ({ results: [{ street: "Skyline Blvd", city: "Oakland", formatted: "x", state_code: "CA" }] }));
+    expect(await reverseGeocode(37.8, -122.2)).toEqual({ label: "near Skyline Blvd, Oakland", state: "CA" });
+    // ISO 3166-2 "US-CA" form normalizes to the bare 2-letter code NWS area= expects.
+    mockFetch(() => ({ results: [{ city: "Oakland", state_code: "US-CA" }] }));
+    expect(await reverseGeocode(37.8, -122.2)).toEqual({ label: "near Oakland", state: "CA" });
+    // No state_code -> state undefined, but the label is still built from `formatted`.
     mockFetch(() => ({ results: [{ formatted: "Somewhere, CA" }] }));
-    expect(await reverseGeocode(37.8, -122.2)).toBe("near Somewhere, CA");
+    expect(await reverseGeocode(37.8, -122.2)).toEqual({ label: "near Somewhere, CA", state: undefined });
     mockFetch(() => ({ results: [{}] }));
     expect(await reverseGeocode(37.8, -122.2)).toBeNull();
     mockFetch(() => "ERR");
@@ -311,12 +313,16 @@ describe("fetch-backed helpers", () => {
     globalThis.fetch = (async () => { throw new Error("network"); }) as any;
     expect(await reverseGeocode(37.8, -122.2)).toBeNull();
   });
-  test("fetchAlertsAtPoint maps features", async () => {
-    mockFetch(() => ({ features: [{ id: "u1", properties: { event: "Red Flag Warning", headline: "h", areaDesc: "A; B" } }] }));
+  test("fetchAlertsAtPoint maps features (incl. UGC zones)", async () => {
+    mockFetch(() => ({ features: [{ id: "u1", properties: { event: "Red Flag Warning", headline: "h", areaDesc: "A; B", geocode: { UGC: ["AZZ112", "AZZ113"] } } }] }));
     const a = await fetchAlertsAtPoint(37.8, -122.2);
     expect(a.length).toBe(1);
     expect(a[0].event).toBe("Red Flag Warning");
     expect(a[0].areas).toEqual(["A", "B"]);
+    expect(a[0].ugc).toEqual(["AZZ112", "AZZ113"]);
+    // Missing geocode block -> empty ugc, not a crash.
+    mockFetch(() => ({ features: [{ id: "u2", properties: { event: "Red Flag Warning", areaDesc: "C" } }] }));
+    expect((await fetchAlertsAtPoint(37.8, -122.2))[0].ugc).toEqual([]);
     mockFetch(() => "ERR");
     expect(await fetchAlertsAtPoint(37.8, -122.2)).toEqual([]);
   });
@@ -380,5 +386,63 @@ describe("fetch-backed helpers", () => {
     expect(polys.length).toBe(1);
     expect(polys[0].source).toBe("zone");
     expect(polys[0].rings.length).toBe(1); // only CAZ298 resolved
+  });
+  test("fetchActiveRedFlagPolygons accepts a multi-state array (comma-joined area)", async () => {
+    let requestedUrl = "";
+    mockFetch((url) => {
+      requestedUrl = url;
+      return { features: [
+        { id: "az", properties: { event: "Red Flag Warning", areaDesc: "AZ zone" }, geometry: { type: "Polygon", coordinates: [squareRing(35.0, -110.7, 0.1)] } },
+      ]};
+    });
+    const polys = await fetchActiveRedFlagPolygons(["AZ", "NM", "CO"]);
+    expect(polys.length).toBe(1);
+    // NWS area= takes a comma-separated list; encodeURIComponent renders the comma as %2C.
+    expect(requestedUrl).toContain("area=AZ%2CNM%2CCO");
+  });
+
+  test("resolveAlertsToPolygons resolves a zone-based point alert to geometry", async () => {
+    const ring = squareRing(35.0242, -110.6974, 0.3); // box around Winslow, AZ
+    mockFetch((url) => {
+      if (url.includes("zones/fire/AZZ113")) return { geometry: { type: "Polygon", coordinates: [ring] } };
+      return "ERR";
+    });
+    const alert = {
+      id: "az1", event: "Red Flag Warning", headline: "RFW Little Colorado River Valley",
+      description: "", instruction: null, severity: "Severe", certainty: "Likely", urgency: "Expected",
+      starts: "", ends: "", expires: "", sender_name: "NWS Flagstaff", areas: ["Navajo County"], ugc: ["AZZ113"],
+    };
+    const polys = await resolveAlertsToPolygons([alert]);
+    expect(polys.length).toBe(1);
+    expect(polys[0].source).toBe("zone");
+    expect(polys[0].headline).toBe("RFW Little Colorado River Valley");
+    // The Winslow point falls inside the resolved zone ring.
+    expect(pointInPolygon(35.0242, -110.6974, polys[0].rings[0])).toBe(true);
+  });
+  test("resolveAlertsToPolygons drops alerts whose zones fail to resolve / have no UGC", async () => {
+    mockFetch(() => "ERR"); // every zone fetch fails
+    const withUgc = {
+      id: "az1", event: "Red Flag Warning", headline: "h", description: "", instruction: null,
+      severity: "", certainty: "", urgency: "", starts: "", ends: "", expires: "", sender_name: "", areas: [], ugc: ["AZZ113"],
+    };
+    const noUgc = { ...withUgc, id: "az2", ugc: [] as string[] };
+    expect(await resolveAlertsToPolygons([withUgc, noUgc])).toEqual([]);
+  });
+
+  test("classifyVerdict: forceInZone makes a point in_zone even when geometry is missing", async () => {
+    // Empty polygon set (zone resolution failed) but the point query saw an RFW.
+    const forced = classifyVerdict(35.0242, -110.6974, [], fc("NE", 30), true);
+    expect(forced.state).toBe("in_zone");
+    expect(forced.nearest_polygon).toBeNull();
+    // Without the force signal and no polygons, the same point reads safe.
+    expect(classifyVerdict(35.0242, -110.6974, [], fc("NE", 30), false).state).toBe("safe_tonight");
+  });
+  test("classifyVerdict: forceInZone wins even when the nearest polygon is far away", async () => {
+    // Point is NOT inside the (far) polygon, but the point query is authoritative.
+    const farPoly = poly("far", squareRing(33.0, -112.0, 0.1));
+    const v = classifyVerdict(35.0242, -110.6974, [farPoly], fc("NE", 30), true);
+    expect(v.state).toBe("in_zone");
+    expect(v.nearest_polygon).not.toBeNull();   // still populated for the map
+    expect(v.downwind.triggered).toBe(false);   // no downwind headline on a forced in_zone
   });
 });

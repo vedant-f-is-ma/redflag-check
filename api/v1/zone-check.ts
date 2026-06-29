@@ -11,6 +11,7 @@ import {
   fetchAlertsAtPoint,
   fetchForecastSummary,
   fetchActiveRedFlagPolygons,
+  resolveAlertsToPolygons,
   fetchPyrecastData,
   classifyVerdict,
   buildActionChecklist,
@@ -35,6 +36,7 @@ export default async function handler(req: Request): Promise<Response> {
   let lng: number;
   let matched_address: string | undefined;
   let zip: string | undefined;
+  let state: string | undefined; // 2-letter state code, used to scope the out-of-zone regional fetch
 
   if (address) {
     const geo = await geocodeAddress(address);
@@ -43,6 +45,7 @@ export default async function handler(req: Request): Promise<Response> {
     lng = geo.lng;
     matched_address = geo.matched_address;
     zip = geo.zip;
+    state = geo.state;
   } else if (latParam && lngParam) {
     lat = parseFloat(latParam);
     lng = parseFloat(lngParam);
@@ -53,23 +56,41 @@ export default async function handler(req: Request): Promise<Response> {
     return errorResponse("Provide either ?address=... or ?lat=...&lng=... (URL-encoded).", 400);
   }
 
-  // Fetch alerts at point, the full state RFW polygon set (for distance math), the
-  // forecast, and, for a lat/lng (geolocation) request, a reverse-geocoded label
-  // so the result can confirm WHERE it checked. All in parallel.
-  const [pointAlerts, statePolygons, forecast, reverseLabel, pyrecast] = await Promise.all([
+  // Fetch alerts at the point, the forecast, an optional reverse-geocoded label
+  // (lat/lng path), and fire context — all in parallel. Which polygon set we need
+  // (the point's OWN warnings vs the surrounding state) depends on the point-alert
+  // result, so polygons are resolved in the step after.
+  const [pointAlerts, forecast, reverseInfo, pyrecast] = await Promise.all([
     fetchAlertsAtPoint(lat, lng),
-    fetchActiveRedFlagPolygons("CA"),
     fetchForecastSummary(lat, lng),
     address ? Promise.resolve(null) : reverseGeocode(lat, lng),
     fetchPyrecastData(lat, lng),
   ]);
-  if (!matched_address && reverseLabel) matched_address = reverseLabel;
+  if (!matched_address && reverseInfo) matched_address = reverseInfo.label;
+  // For a raw lat/lng request the state comes from the reverse geocode — it scopes
+  // the out-of-zone regional fetch so geolocation users keep adjacency/downwind.
+  if (!state && reverseInfo?.state) state = reverseInfo.state;
 
-  // Find Red Flag Warning alerts (legacy field for backward compat)
+  // Red Flag Warning alerts AT THE POINT. NWS returns only alerts whose zones
+  // CONTAIN the point, so a non-empty result is the authoritative in_zone signal —
+  // including zone-based (UGC-only) warnings that carry no inline polygon.
   const redFlagAlerts = pointAlerts.filter((a) => a.event === "Red Flag Warning");
+  const inZoneByPoint = redFlagAlerts.length > 0;
 
-  // NEW: 4-state verdict using polygon geometry + wind vector
-  const verdict = classifyVerdict(lat, lng, statePolygons, forecast);
+  // In-zone: resolve the point's own warnings to geometry (a handful of zones) so
+  // the map can draw the actual warning area. Out-of-zone: pull the surrounding
+  // state's warnings so we can still report the nearest one + downwind threat. The
+  // state comes from the geocoder; for a raw lat/lng with no derivable state we skip
+  // the regional fetch (the in_zone verdict does not depend on it).
+  const polygons = inZoneByPoint
+    ? await resolveAlertsToPolygons(redFlagAlerts)
+    : state
+    ? await fetchActiveRedFlagPolygons(state)
+    : [];
+
+  // 4-state verdict. The point query is authoritative for in_zone (forceInZone);
+  // geometry only enriches it (nearest polygon, map, downwind).
+  const verdict = classifyVerdict(lat, lng, polygons, forecast, inZoneByPoint);
   const inZone = verdict.state === "in_zone";
 
   // Backward-compatible category mapping for the existing action checklist
