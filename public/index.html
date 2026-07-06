@@ -1234,6 +1234,16 @@ function compassSVG(verdict) {
 // URLs already requested this session, so background zoom-warming fires each at most once.
 const WARMED = new Set();
 
+// The basemap style is baked into each map URL server-side (style=osm-bright-grey).
+// Swap it for a dark equivalent client-side when the site is in dark mode, so the
+// embedded map matches the surrounding UI instead of sitting as a bright rectangle
+// in an otherwise dark page. Marker/overlay colors (orange pin, blue wind line, red
+// fire line, white info pill) all stay legible against the dark basemap too.
+function themedMapUrl(url) {
+  const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+  return isDark ? url.replace("style=osm-bright-grey", "style=dark-matter-dark-grey") : url;
+}
+
 function upgradeGeoMap(data, container, zoomLevel) {
   const views = data && data.map_views;
   if (!views) return;
@@ -1249,7 +1259,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
   let i = 0;
   (function tryNext() {
     if (i >= urls.length) { stopLoading(); return; }   // exhausted, keep the SVG
-    const url = urls[i++];
+    const url = themedMapUrl(urls[i++]);
     const img = new Image();
     let settled = false;
     const timer = setTimeout(() => { if (!settled) { settled = true; tryNext(); } }, 8000);
@@ -1273,7 +1283,8 @@ function upgradeGeoMap(data, container, zoomLevel) {
       // Current view is in. Now warm the OTHER zoom levels in the background (uncontended,
       // after the critical render) so zoom stays snappy. Each URL is fetched once per session.
       MAP_ZOOM_ORDER.forEach((l) => {
-        const u = views[l] && views[l].urls && views[l].urls[0];
+        const raw = views[l] && views[l].urls && views[l].urls[0];
+        const u = raw && themedMapUrl(raw);
         if (u && !WARMED.has(u)) { WARMED.add(u); if (l !== zoomLevel) new Image().src = u; }
       });
       track("map_image_shown", {});
