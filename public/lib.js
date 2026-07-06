@@ -122,7 +122,13 @@ export function mapOverlay(youPx, verdict) {
 
   if (wind && wind.wind_from_compass) {
     const lbl = `winds ${esc(wind.wind_from_compass)} · ${Math.round(wind.wind_speed_mph_peak || 0)} mph`;
-    const lw = Math.max(120, lbl.length * 7.6);
+    // Text is left-aligned at x=11 (not centered), so the rect needs the measured text
+    // width PLUS matching padding on both sides, not just a per-char guess of the text
+    // alone. 8.6px/char is calibrated against canvas.measureText() for this bold 14px
+    // label font across compass labels up to "WNW"/"SSW" (the widest realistic case,
+    // 3-letter intercardinal directions); the flat 7.6px/char + no-padding version this
+    // replaces under-measured those and let the text overflow the pill.
+    const lw = Math.max(130, lbl.length * 8.6 + 22);
     parts += `<g transform="translate(12,12)"><rect x="0" y="0" width="${lw.toFixed(0)}" height="26" rx="9" class="mapinfo-pill"/><text x="11" y="18" font-size="14" class="mapwind-label">${lbl}</text></g>`;
   }
 
