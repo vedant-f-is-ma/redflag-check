@@ -899,6 +899,20 @@ function track(event, props) {
 function loadingHtml() {
   return `<div class="card" style="text-align:center"><span class="loading"></span> Checking…</div>`;
 }
+// Shown instead of loadingHtml() when lat/lng are already known (autocomplete pick,
+// "Use my location") so a real basemap can start loading immediately, in parallel with
+// the zone-check verdict, instead of waiting for the verdict before the map even starts.
+// No verdict/warning language here on purpose (fail-safe rule: never imply a safety
+// conclusion before one is actually known) and no zoom controls (nothing to bind yet).
+function pendingMapHtml() {
+  return `<div class="card" style="text-align:center">
+      <p style="margin:0 0 .75rem"><span class="loading"></span> Checking tonight's fire-weather conditions…</p>
+      <div class="geomap-wrapper" style="text-align:left">
+        <div class="geomap-canvas"></div>
+        <p class="geomap-caption">Loading a map of your location…</p>
+      </div>
+    </div>`;
+}
 function errorHtml(msg) {
   return `<div class="error">${esc(msg)}</div>`;
 }
@@ -907,16 +921,47 @@ function errorHtml(msg) {
 // Shared zone-check runner, used by both the address check and the location button.
 async function runZoneCheck(qs, label) {
   const out = $("#zone-result");
-  out.innerHTML = loadingHtml();
+  let settled = false; // true once the REAL zone-check result has rendered; guards the
+                        // parallel generic-map callback below from clobbering it if it
+                        // resolves late.
+
+  // If lat/lng are already known client-side (autocomplete pick, geolocation), kick off
+  // a generic "here's your area" basemap in parallel with the zone-check call instead of
+  // waiting for the verdict before the map even starts loading. The final, authoritative
+  // map (with the real warning polygon if any) still comes from zone-check and replaces
+  // this once it lands; this just hides most of the wait behind work already happening.
+  const m = /^lat=([-\d.]+)&lng=([-\d.]+)$/.exec(qs);
+  if (m) {
+    out.innerHTML = pendingMapHtml();
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/v1/static-map`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lat, lng, nearest: null }),
+        });
+        if (!r.ok || settled) return;
+        const j = await r.json();
+        if (settled || !j || !j.map_views) return;
+        upgradeGeoMap({ map_views: j.map_views, verdict: {} }, out, getMapZoom());
+      } catch (e) { /* zone-check's own map will still arrive; no-op */ }
+    })();
+  } else {
+    out.innerHTML = loadingHtml();
+  }
+
   try {
     const res = await fetch(`${API}/api/v1/zone-check?${qs}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      settled = true;
       out.innerHTML = errorHtml(err.error || `Lookup failed (${res.status}).`);
       track("address_check_failed", { status: res.status });
       return;
     }
     const data = await res.json();
+    settled = true;
     const _sl = document.getElementById("addr-suggest");
     if (_sl) { _sl.hidden = true; _sl.innerHTML = ""; }
     const _ai = document.getElementById("address-input");
@@ -933,6 +978,7 @@ async function runZoneCheck(qs, label) {
       zip: data.location?.zip || "unknown",
     });
   } catch (e) {
+    settled = true;
     out.innerHTML = errorHtml("Network error. Try again.");
     track("address_check_error", {});
   }
