@@ -845,7 +845,7 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
   const geoapifyKey = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
   if (!geoapifyKey) return null;                        // no provider key -> client keeps the SVG
 
-  const W = 640, H = 420;
+  const W = 480, H = 315;
   const marker = `lonlat:${userLng.toFixed(5)},${userLat.toFixed(5)};type:material;color:%23ff6b3d;size:large`;
 
   // No usable warning polygon (safe result, or a polygon too far to draw): render a
