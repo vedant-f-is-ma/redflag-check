@@ -908,7 +908,7 @@ function pendingMapHtml() {
   return `<div class="card" style="text-align:center">
       <p style="margin:0 0 .75rem"><span class="loading"></span> Checking tonight's fire-weather conditions…</p>
       <div class="geomap-wrapper" style="text-align:left">
-        <div class="geomap-canvas"></div>
+        <div class="geomap-canvas geomap-loading"></div>
         <p class="geomap-caption">Loading a map of your location…</p>
       </div>
     </div>`;
@@ -944,7 +944,10 @@ async function runZoneCheck(qs, label) {
         if (!r.ok || settled) return;
         const j = await r.json();
         if (settled || !j || !j.map_views) return;
-        upgradeGeoMap({ map_views: j.map_views, verdict: {} }, out, getMapZoom());
+        // holdLoading=true: this is the interim generic map, not the final result -- the real
+        // zone-check's own upgradeGeoMap call (below) is still coming and owns turning the
+        // "Loading map…" indicator off.
+        upgradeGeoMap({ map_views: j.map_views, verdict: {} }, out, getMapZoom(), true);
       } catch (e) { /* zone-check's own map will still arrive; no-op */ }
     })();
   } else {
@@ -1289,7 +1292,7 @@ function themedMapUrl(url) {
   return isDark ? url.replace("style=osm-bright-grey", "style=dark-matter-dark-grey") : url;
 }
 
-function upgradeGeoMap(data, container, zoomLevel) {
+function upgradeGeoMap(data, container, zoomLevel, holdLoading) {
   const views = data && data.map_views;
   if (!views) return;
   const view = views[zoomLevel] || views.area;
@@ -1300,7 +1303,12 @@ function upgradeGeoMap(data, container, zoomLevel) {
   if (!canvas) return;
   const verdict = data.verdict || {};
   canvas.classList.add("geomap-loading");       // "Loading map…" until the real basemap is in
-  const stopLoading = () => canvas.classList.remove("geomap-loading");
+  // holdLoading: this call is showing an interim map (the generic placeholder fired while
+  // the authoritative zone-check is still in flight). A second, final upgradeGeoMap call for
+  // the real result is already on its way and will turn the indicator off itself -- if this
+  // interim call cleared it first, the "Loading map…" pill would flash off then back on
+  // instead of staying lit for the whole wait.
+  const stopLoading = () => { if (!holdLoading) canvas.classList.remove("geomap-loading"); };
   let i = 0;
   (function tryNext() {
     if (i >= urls.length) { stopLoading(); return; }   // exhausted, keep the SVG
