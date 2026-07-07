@@ -969,7 +969,26 @@ async function runZoneCheck(qs, label) {
     if (_sl) { _sl.hidden = true; _sl.innerHTML = ""; }
     const _ai = document.getElementById("address-input");
     if (_ai) _ai.setAttribute("aria-expanded", "false");
+    // If the interim generic map (fast path) already finished loading a real image, carry
+    // it over into the fresh render instead of flashing back to an empty/SVG placeholder
+    // while the authoritative map reloads behind it -- the verdict text below is already
+    // final and correct at this point, only the annotated map image is still catching up.
+    const staleMapSrc = out.querySelector(".geomap-canvas .geomap-img")?.src;
     out.innerHTML = renderZoneResult(data);
+    if (staleMapSrc) {
+      const freshCanvas = out.querySelector(".geomap-canvas");
+      if (freshCanvas) {
+        const img = document.createElement("img");
+        img.className = "geomap-img";
+        img.alt = "";
+        img.src = staleMapSrc;
+        const wrap = document.createElement("div");
+        wrap.className = "geomap-mapwrap";
+        wrap.appendChild(img);
+        freshCanvas.innerHTML = "";
+        freshCanvas.appendChild(wrap);
+      }
+    }
     bindShare(label || "your address", data);
     upgradeGeoMap(data, out, getMapZoom());
     bindMapZoom(out, data);
