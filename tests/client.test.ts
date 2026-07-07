@@ -72,20 +72,31 @@ describe("geoMapSVG", () => {
 
 describe("mapOverlay", () => {
   const verdict = demoVerdict("downwind_threat").verdict; // wind NE 35mph, fire 8mi NE
-  test("draws wind arrow + fire direction + wind label", () => {
-    const ov = mapOverlay([320, 210], verdict);
-    expect(ov).toContain("geomap-overlay");
-    expect(ov).toContain("mapwind-line");
-    expect(ov).toContain("fire 8 mi NE");
-    expect(ov).toContain("winds NE");
+  test("at close/closer zoom, draws wind arrow + fire direction + wind label", () => {
+    for (const z of ["close", "closer"]) {
+      const ov = mapOverlay([320, 210], verdict, z);
+      expect(ov).toContain("geomap-overlay");
+      expect(ov).toContain("mapwind-line");
+      expect(ov).toContain("fire 8 mi NE");
+      expect(ov).toContain("winds NE");
+    }
   });
-  test("in_zone (distance 0) skips the fire-direction arrow", () => {
-    const ov = mapOverlay([320, 210], demoVerdict("in_zone").verdict);
+  test("at wide/area zoom, suppresses the fire indicator (real polygon is already on-frame) but keeps wind", () => {
+    for (const z of ["wide", "area", undefined]) {
+      const ov = mapOverlay([320, 210], verdict, z);
+      expect(ov).not.toContain("fire 8 mi NE");
+      expect(ov).not.toContain("mapfire-line");
+      expect(ov).toContain("mapwind-line");
+      expect(ov).toContain("winds NE");
+    }
+  });
+  test("in_zone (distance 0) skips the fire-direction arrow even at close zoom", () => {
+    const ov = mapOverlay([320, 210], demoVerdict("in_zone").verdict, "close");
     expect(ov).not.toContain("fire 0 mi");
     expect(ov).toContain("mapwind-line"); // wind still drawn
   });
   test("empty for bad input or no wind/fire", () => {
-    expect(mapOverlay(null, verdict)).toBe("");
-    expect(mapOverlay([320, 210], { wind_vector: null, nearest_polygon: null })).toBe("");
+    expect(mapOverlay(null, verdict, "close")).toBe("");
+    expect(mapOverlay([320, 210], { wind_vector: null, nearest_polygon: null }, "close")).toBe("");
   });
 });

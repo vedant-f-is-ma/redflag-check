@@ -86,17 +86,24 @@ export function geoMapSVG(verdict, location, zoomLevel) {
   `;
 }
 
-// SVG overlay drawn on the map image (anchored at the address = image center). Shows
-// BOTH the wind direction (blue, toward you) and the fire/warning direction (red 🔥),
-// at every zoom level, so even at street zoom (polygon off-frame) you see the fire.
-export function mapOverlay(youPx, verdict) {
+// SVG overlay drawn on the map image (anchored at the address = image center). Always
+// shows the wind direction (blue, toward you). Also shows the fire/warning direction
+// (red 🔥, at a fixed pixel radius, NOT the real polygon geometry) but only at
+// "close"/"closer" zoom, where the actual polygon is off-frame by design (see
+// buildStaticMapUrls: those zooms start from the polygon-fitting zoom + 4/+6 levels
+// in). At "wide"/"area" the real polygon is already drawn on the basemap from its
+// true coordinates, so the fixed-radius fire icon can visibly disagree with it
+// (looks like it's floating outside the polygon) — suppress it there and let the
+// real, accurate shape speak for itself.
+export function mapOverlay(youPx, verdict, zoomLevel) {
   if (!Array.isArray(youPx)) return "";
   const W = 640, H = 420, cx = youPx[0], cy = youPx[1];
   const rad = (deg) => ((deg - 90) * Math.PI) / 180;
   const wind = verdict.wind_vector, np = verdict.nearest_polygon;
+  const showFireIndicator = zoomLevel === "close" || zoomLevel === "closer";
   let parts = "";
 
-  if (np && np.bearing_to_polygon_deg !== null && np.bearing_to_polygon_deg !== undefined && isFinite(np.distance_mi) && np.distance_mi >= 1.5) {
+  if (showFireIndicator && np && np.bearing_to_polygon_deg !== null && np.bearing_to_polygon_deg !== undefined && isFinite(np.distance_mi) && np.distance_mi >= 1.5) {
     const fb = rad(np.bearing_to_polygon_deg);
     const R = 0.40 * Math.min(W, H);
     let fx = cx + R * Math.cos(fb), fy = cy + R * Math.sin(fb);

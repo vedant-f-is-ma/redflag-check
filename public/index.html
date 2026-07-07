@@ -1272,9 +1272,8 @@ function compassSVG(verdict) {
 // On success, swap the SVG for the image; if every URL errors or is too slow (network
 // under load), keep the SVG. The SVG is always the final, always-renders fallback.
 // SVG overlay drawn on the map image, anchored at the address (= image center).
-// Shows BOTH the wind direction (blue, blowing toward you) and the fire/warning
-// direction (red 🔥 toward the polygon, with distance), at EVERY zoom level, so
-// even at street zoom (polygon off-frame) you can see which way the fire is.
+// Always shows wind direction; shows the fire-direction indicator only at
+// close/closer zoom, where the real polygon is off-frame (see lib.js for why).
 // mapOverlay moved to ./lib.js
 
 // URLs already requested this session, so background zoom-warming fires each at most once.
@@ -1317,7 +1316,7 @@ function upgradeGeoMap(data, container, zoomLevel) {
       const wrap = document.createElement("div");
       wrap.className = "geomap-mapwrap";
       wrap.appendChild(img);
-      const overlay = mapOverlay(view.you_px, verdict);
+      const overlay = mapOverlay(view.you_px, verdict, zoomLevel);
       if (overlay) wrap.insertAdjacentHTML("beforeend", overlay);
       canvas.innerHTML = "";
       stopLoading();
