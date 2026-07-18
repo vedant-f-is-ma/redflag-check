@@ -57,6 +57,8 @@ MIT for the wrapper, UX, and aggregation logic. API responses contain public-dom
 
 Informational only. NOT an official emergency service. For official alerts, sign up at [AC Alert](https://www.acgov.org/ready/connect.htm). In case of fire, call 911.
 
+The authoritative version is the [Terms of Use & Disclaimer](https://redflag-check.info/terms) (source: [`public/terms.html`](public/terms.html)). This project is maintained by a volunteer and is not affiliated with the National Weather Service, CAL FIRE, or any government or emergency-response agency. Note: the Terms are a good-faith, plain-English draft and have not been reviewed by an attorney.
+
 ## Contact
 
 Vedant Thakker · `vedant28t [at] gmail [dot] com`

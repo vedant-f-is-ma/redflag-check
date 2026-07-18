@@ -111,7 +111,7 @@ export default async function handler(req: Request): Promise<Response> {
       source: "California Interscholastic Federation Air Quality Index Guidelines (cifstate.org)",
     },
     disclaimer:
-      "Informational guidance only. Final closure / modification decisions rest with district leadership and county health officer. This service does NOT replace official district SOPs.",
+      "Informational guidance only. Final closure / modification decisions rest with district leadership and county health officer. This service does NOT replace official district SOPs. Full Terms of Use & Disclaimer: https://redflag-check.info/terms",
     generated_at: new Date().toISOString(),
   });
 }

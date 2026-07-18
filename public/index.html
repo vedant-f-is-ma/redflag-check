@@ -127,6 +127,53 @@
     border-radius: 4px;
   }
 
+  /* ── One-time Terms notice ──────────────────────────────────────────────
+     A NON-BLOCKING bar pinned to the bottom of the viewport. It deliberately
+     never covers the address input or the verdict, never traps focus, and is
+     dismissed in a single click — so it can't slow down someone checking an
+     address during an actual Red Flag Warning. Starts hidden; setupTermsGate()
+     reveals it only when rfc-terms-accepted-v1 is absent, so returning users
+     never see it (or a flash of it). Uses the same theme variables, so it
+     follows the light/dark toggle automatically. */
+  .terms-gate {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 50;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem 1rem;
+    padding: .8rem 1rem;
+    padding-bottom: calc(.8rem + env(safe-area-inset-bottom));
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.28);
+  }
+  .terms-gate[hidden] { display: none; }   /* attribute must beat display:flex */
+  .terms-gate-text {
+    margin: 0;
+    max-width: 44rem;
+    font-size: .9rem;
+    color: var(--text-dim);
+  }
+  .terms-gate-text a { color: var(--accent); }
+  .terms-gate-btn {
+    flex-shrink: 0;
+    background: var(--accent);
+    color: #1a0a02;
+    border: none;
+    border-radius: 8px;
+    padding: .55rem 1.15rem;
+    font-family: inherit;
+    font-size: .9rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .terms-gate-btn:hover { filter: brightness(1.06); }
+  /* Accent-on-accent would be invisible; use a high-contrast outline instead. */
+  .terms-gate-btn:focus-visible { outline: 3px solid var(--text); outline-offset: 2px; }
+
   /* WCAG 2.1 AAA touch target: every tappable element ≥ 44×44 on mobile */
   @media (max-width: 768px) {
     button, .tab, a.secondary, .ui-toggle { min-height: 44px; }
@@ -776,8 +823,21 @@
     Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
     For developers: <a href="/docs">API docs</a> · <a href="/openapi.yaml">OpenAPI spec</a> · <a href="https://github.com/vedant-f-is-ma/redflag-check">GitHub</a><br>
     For official emergency alerts, sign up for <a href="https://www.ready.gov/alerts">your local emergency alerts</a>. In case of fire, call 911.<br>
-    <span style="font-size:.78rem;opacity:.8;">This app is for information only during Red Flag Warnings. Refer to AC Alerts, Genasys Protect notifications, and other official sources of information during active emergencies.</span>
+    <span style="font-size:.78rem;opacity:.8;">This app is for information only during Red Flag Warnings. Refer to AC Alerts, Genasys Protect notifications, and other official sources of information during active emergencies. See the full <a href="/terms">Terms of Use &amp; Disclaimer</a>.</span>
   </footer>
+</div>
+
+<!-- One-time, one-click Terms notice. Non-blocking (see .terms-gate CSS and
+     setupTermsGate()): lives at the end of the body and is fixed to the bottom
+     so it never covers the tool. role="region" (NOT dialog) — it must not trap
+     focus or block the address check. Hidden until the script confirms the
+     visitor hasn't already accepted. -->
+<div id="terms-gate" class="terms-gate" role="region" aria-label="Terms of use notice" hidden>
+  <p class="terms-gate-text">
+    This tool is <strong>informational only</strong> and not a substitute for official emergency guidance.
+    <a href="/terms">Read the full Terms &amp; Disclaimer</a>.
+  </p>
+  <button type="button" class="terms-gate-btn" id="terms-gate-accept">I understand and agree</button>
 </div>
 
 <script type="module">
@@ -816,6 +876,38 @@ const API = ""; // same-origin
       else if (e.key === "End") next = tabs[tabs.length - 1];
       if (next) { e.preventDefault(); selectTab(next, { focus: true }); }
     });
+  });
+})();
+
+// One-time Terms notice. NON-BLOCKING by design: the banner never covers the
+// address input or the verdict, and the tool stays fully usable while it's up —
+// critical for someone checking an address during an actual Red Flag Warning.
+// Shown once per browser; "I understand and agree" sets rfc-terms-accepted-v1.
+// If the Terms change materially, bump that key to -v2 to re-prompt prior users.
+(function setupTermsGate() {
+  const gate = document.getElementById("terms-gate");
+  const btn = document.getElementById("terms-gate-accept");
+  if (!gate || !btn) return;
+  const KEY = "rfc-terms-accepted-v1";
+
+  let accepted = false;
+  try { accepted = localStorage.getItem(KEY) === "1"; } catch (e) {}
+  if (accepted) return;   // returning visitor: never render the notice at all
+
+  gate.removeAttribute("hidden");
+  btn.addEventListener("click", (e) => {
+    try { localStorage.setItem(KEY, "1"); } catch (err) {}
+    // Only move focus on keyboard activation (Enter/Space fire a click with
+    // detail 0); a mouse/touch tap leaves focus alone so we don't pop the
+    // on-screen keyboard on mobile. Either way this keeps keyboard focus off
+    // the detached node once the banner is removed.
+    const viaKeyboard = e.detail === 0;
+    gate.remove();
+    if (viaKeyboard) {
+      const addr = document.getElementById("address-input");
+      if (addr) addr.focus();
+    }
+    if (window.va) window.va("event", { name: "terms_accepted" });
   });
 })();
 

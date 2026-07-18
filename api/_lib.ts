@@ -918,7 +918,7 @@ export function buildStaticMapUrls(userLat: number, userLng: number, nearest: Ne
 // ---------------------------------------------------------------------------
 
 const _A83 = 6_378_137.0;                   // GRS80 semi-major axis (m)
-const _E2_83 = 0.00669437999014;            // GRS80 eccentricity squared
+const _E2_83 = 0.00669438002290;            // GRS80 eccentricity squared (e² = 2f − f², 1/f = 298.257222101)
 const _E_83 = Math.sqrt(_E2_83);
 
 const _ALBERS_PHI1 = 34.0 * (Math.PI / 180);   // 1st standard parallel

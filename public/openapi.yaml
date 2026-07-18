@@ -26,7 +26,8 @@ info:
     for 60 seconds. If you sustain over ~1 req/sec, contact the maintainer to plan capacity.
 
     **Disclaimer:** informational only, not an official emergency service. For official alerts,
-    sign up at AC Alert. In case of fire, call 911.
+    sign up at AC Alert. In case of fire, call 911. The full Terms of Use & Disclaimer are at
+    https://redflag-check.info/terms
   version: 1.0.0
   contact:
     name: redflag-check on GitHub
