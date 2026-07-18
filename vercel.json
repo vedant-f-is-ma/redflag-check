@@ -21,6 +21,7 @@
   ],
   "rewrites": [
     { "source": "/docs", "destination": "/docs.html" },
+    { "source": "/terms", "destination": "/terms.html" },
     { "source": "/embed/zone-check", "destination": "/embed-zone-check.html" },
     { "source": "/api/v1", "destination": "/api/v1/welcome" },
     { "source": "/api/v1/", "destination": "/api/v1/welcome" },

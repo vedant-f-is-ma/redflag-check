@@ -141,7 +141,7 @@ export default async function handler(req: Request): Promise<Response> {
       ...(pyrecast ? ["Pyrecast/Pyregence (ELMFIRE fire spread model, LANDFIRE 2.5.0 fuels — open access)"] : []),
     ],
     disclaimer:
-      "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up for your county's emergency alerts. In case of fire, call 911.",
+      "Informational only. The downwind-threat reading is a flat-earth wind-line approximation; ridges and canyons change actual fire paths. Always heed official evacuation orders. For official alerts, sign up for your county's emergency alerts. In case of fire, call 911. Full Terms of Use & Disclaimer: https://redflag-check.info/terms",
     generated_at: new Date().toISOString(),
   });
 }
