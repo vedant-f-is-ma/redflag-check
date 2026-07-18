@@ -199,10 +199,19 @@
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/schools</span>
-  <p class="desc">List of supported East Bay schools with id, name, district, address, and pre-resolved lat/lng. Use these <code>id</code> values with <code>/school-status</code>.</p>
+  <p class="desc">Find schools near a point, or search all California public schools by name. Server-side lookup over the full California Department of Education public-school directory (~10.5k active schools) plus an individually-verified curated set — the whole list is never shipped to the client. Every result carries an <code>id</code> for use with <code>/school-status</code>.</p>
 </div>
-<h3>Example</h3>
-<pre><code>curl 'https://redflag-check.info/api/v1/schools'</code></pre>
+<h3>Query parameters</h3>
+<table>
+<tr><th>Parameter</th><th>Required</th><th>Description</th></tr>
+<tr><td><code>lat</code>, <code>lng</code></td><td>For a radius query</td><td>Return schools near this point, nearest first, each with <code>distance_mi</code>.</td></tr>
+<tr><td><code>radius_mi</code></td><td>No</td><td>Radius in miles (default 10, max 60). Auto-expands where schools are sparse; caps where dense.</td></tr>
+<tr><td><code>q</code></td><td>For a name search</td><td>Match by name, city, or district (independent of distance) — for open-enrollment / magnet / boarding cases.</td></tr>
+</table>
+<p class="small">With no parameters, returns only the curated, individually-verified set (backward compatible).</p>
+<h3>Examples</h3>
+<pre><code>curl 'https://redflag-check.info/api/v1/schools?lat=32.7157&amp;lng=-117.1611&amp;radius_mi=10'
+curl 'https://redflag-check.info/api/v1/schools?q=Torrey+Pines'</code></pre>
 
 <div class="endpoint">
   <span class="method">GET</span><span class="url">/api/v1/school-status</span>
