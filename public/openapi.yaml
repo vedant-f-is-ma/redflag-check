@@ -153,8 +153,8 @@ paths:
           nearest first, each with `distance_mi`. In sparse/rural areas the radius auto-expands
           until a few results are found (`auto_expanded: true`, up to 60 mi); in dense areas the
           list is capped (`capped: true`) — check `total_within_radius` for the true count.
-        * **Search** — `?q=` matches by name, city, or district (for open-enrollment, magnet, or
-          boarding-school cases where the nearest campus isn't the relevant one).
+        * **Search** — `?q=` matches by name or city, tokenized so word order doesn't matter (for
+          open-enrollment, magnet, or boarding-school cases where the nearest campus isn't relevant).
         * **No params** — returns only the curated, individually-verified set (backward compatible).
 
         Every returned record carries the same `id` used by `/school-status?id=...`.
@@ -179,7 +179,7 @@ paths:
         - name: q
           in: query
           required: false
-          description: Name/city/district search text (independent of distance).
+          description: Name/city search text, tokenized (word order does not matter).
           schema: { type: string }
           example: Torrey Pines High
       responses:

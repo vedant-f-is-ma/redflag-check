@@ -36,11 +36,14 @@ export default async function handler(req: Request): Promise<Response> {
   if (q !== null && q.trim() !== "") {
     const needle = q.trim().toLowerCase();
     const tokens = needle.split(/\s+/).filter(Boolean);
-    // Every token must appear somewhere in name/city/district, in any order — so a
-    // natural query like "Chula Vista High" still finds "Chula Vista Senior High"
-    // (naive whole-string substring matching would miss it).
+    // Every token must appear somewhere in name + city, in any order — so a natural
+    // query like "Chula Vista High" still finds "Chula Vista Senior High" (naive
+    // whole-string substring matching would miss it). District is intentionally not
+    // matched: "... High School District" would inject "high" into every school in
+    // the district, so a "Chula Vista High" search would also surface middle/adult
+    // schools. Matching name + city keeps results aligned with what users type.
     const matches = ALL_SCHOOLS.filter((s) => {
-      const hay = `${s.name} ${s.city} ${s.district}`.toLowerCase();
+      const hay = `${s.name} ${s.city}`.toLowerCase();
       return tokens.every((t) => hay.includes(t));
     });
     // Rank: whole-query name matches first, then name starts-with the first token,

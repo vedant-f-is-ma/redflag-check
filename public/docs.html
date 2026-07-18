@@ -206,7 +206,7 @@
 <tr><th>Parameter</th><th>Required</th><th>Description</th></tr>
 <tr><td><code>lat</code>, <code>lng</code></td><td>For a radius query</td><td>Return schools near this point, nearest first, each with <code>distance_mi</code>.</td></tr>
 <tr><td><code>radius_mi</code></td><td>No</td><td>Radius in miles (default 10, max 60). Auto-expands where schools are sparse; caps where dense.</td></tr>
-<tr><td><code>q</code></td><td>For a name search</td><td>Match by name, city, or district (independent of distance) — for open-enrollment / magnet / boarding cases.</td></tr>
+<tr><td><code>q</code></td><td>For a name search</td><td>Match by name or city, tokenized so word order doesn't matter — for open-enrollment / magnet / boarding cases.</td></tr>
 </table>
 <p class="small">With no parameters, returns only the curated, individually-verified set (backward compatible).</p>
 <h3>Examples</h3>
