@@ -792,7 +792,10 @@
   <!-- ============================== SCHOOLS TAB ============================== -->
   <section class="panel" id="panel-schools" role="tabpanel" aria-labelledby="tab-schools" hidden>
     <div class="card">
-      <label for="school-select">Pick a school</label>
+      <label for="school-search">Search for a school by name</label>
+      <input type="text" id="school-search" placeholder="e.g., Torrey Pines High" autocomplete="off" inputmode="text" aria-describedby="school-hint">
+      <p class="small" id="school-hint" style="margin:.45rem 0 0">Check an address on the “Your address” tab and the closest schools appear here — or search any California public school by name above.</p>
+      <label for="school-select" style="margin-top:.85rem">Pick a school</label>
       <select id="school-select">
         <option value="">Choose a school</option>
       </select>
@@ -1664,77 +1667,87 @@ function bindShare(addr, data) {
 }
 
 // ---------- Schools ----------
-// Dropdown is grouped by city (A-Z) via <optgroup> so it stays scannable as the
-// list grows. Once a location is known (geolocation or an address check), a small
-// "Near you" group of the closest few is prepended automatically (no toggle to set).
-let SCHOOLS_DATA = [];
+// The catalog is ~10.5k California public schools — far too many to ship to the
+// browser — so lookups happen server-side: "schools near you" comes from the
+// radius endpoint (populated from the address already geocoded for the RFW check),
+// and a name search hits ?q=. The old client-side, city-grouped, full-dataset
+// filter is retired (it can't scale to the statewide list); distance now comes
+// from the server (distance_mi), so the client-side haversine is gone too.
 let LAST_LOC = null;
 
-function milesBetween(aLat, aLng, bLat, bLng) {
-  const R = 3958.8, toR = (d) => (d * Math.PI) / 180;
-  const dLat = toR(bLat - aLat), dLng = toR(bLng - aLng);
-  const sLat = Math.sin(dLat / 2), sLng = Math.sin(dLng / 2);
-  const x = sLat * sLat + Math.cos(toR(aLat)) * Math.cos(toR(bLat)) * sLng * sLng;
-  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
-function renderSchoolOptions() {
+// Populate the <select> with one labelled <optgroup>. Preserves the current
+// selection when still present. Records come from the radius or search endpoint.
+function fillSchoolSelect(list, groupLabel) {
   const sel = $("#school-select");
-  if (!sel || !SCHOOLS_DATA.length) return;
+  if (!sel) return;
   const keep = sel.value;
   while (sel.children.length > 1) sel.removeChild(sel.lastChild); // keep the leading placeholder
-
-  // "Near you" — only when a location is known and schools fall within ~25 mi.
-  if (LAST_LOC) {
-    const near = SCHOOLS_DATA
-      .map((s) => ({ s, mi: milesBetween(LAST_LOC.lat, LAST_LOC.lng, s.lat, s.lng) }))
-      .filter((x) => x.mi <= 25)
-      .sort((a, b) => a.mi - b.mi)
-      .slice(0, 3);
-    if (near.length) {
-      const og = document.createElement("optgroup");
-      og.label = "Near you";
-      near.forEach(({ s, mi }) => {
-        const o = document.createElement("option");
-        o.value = s.id;
-        o.textContent = `${s.name} (${mi < 10 ? mi.toFixed(1) : Math.round(mi)} mi)`;
-        og.appendChild(o);
-      });
-      sel.appendChild(og);
-    }
-  }
-
-  // City groups (A-Z), schools A-Z within each.
-  const byCity = {};
-  SCHOOLS_DATA.forEach((s) => { (byCity[s.city] = byCity[s.city] || []).push(s); });
-  Object.keys(byCity).sort((a, b) => a.localeCompare(b)).forEach((city) => {
-    const og = document.createElement("optgroup");
-    og.label = city;
-    byCity[city].sort((a, b) => a.name.localeCompare(b.name)).forEach((s) => {
-      const o = document.createElement("option");
-      o.value = s.id;
-      o.textContent = s.name;
-      og.appendChild(o);
-    });
-    sel.appendChild(og);
+  if (!Array.isArray(list) || !list.length) return;
+  const og = document.createElement("optgroup");
+  og.label = groupLabel;
+  list.forEach((s) => {
+    const o = document.createElement("option");
+    o.value = s.id;
+    const dist = typeof s.distance_mi === "number"
+      ? ` (${s.distance_mi < 10 ? s.distance_mi.toFixed(1) : Math.round(s.distance_mi)} mi)`
+      : "";
+    o.textContent = `${s.name} — ${s.city}${dist}`;
+    og.appendChild(o);
   });
-
-  if (keep) sel.value = keep;
+  sel.appendChild(og);
+  if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
-function setNearbySchools(lat, lng) {
+function setSchoolHint(msg) { const h = $("#school-hint"); if (h) h.textContent = msg; }
+
+// Called when an address is geocoded for the main RFW check — we reuse that
+// lat/lng (no re-geocode) and ask the server for the nearest schools.
+async function setNearbySchools(lat, lng) {
   if (!isFinite(lat) || !isFinite(lng)) return;
   LAST_LOC = { lat, lng };
-  renderSchoolOptions();
+  try {
+    const r = await fetch(`${API}/api/v1/schools?lat=${lat}&lng=${lng}&radius_mi=15`);
+    const d = await r.json();
+    if (Array.isArray(d.schools) && d.schools.length) {
+      const label = d.auto_expanded ? `Nearest schools (within ${Math.round(d.applied_radius_mi)} mi)` : "Schools near you";
+      fillSchoolSelect(d.schools, label);
+      setSchoolHint(`Showing the ${d.count} closest school${d.count === 1 ? "" : "s"}${d.capped ? " (of many)" : ""} to the address you checked. Not the right one? Search by name above.`);
+    }
+  } catch (e) { /* leave the current options in place */ }
 }
 
-(async function loadSchools() {
+// Name search — debounced so we don't fire a request on every keystroke.
+(function bindSchoolSearch() {
+  const inp = $("#school-search");
+  if (!inp) return;
+  let timer = null;
+  inp.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = inp.value.trim();
+    if (q.length < 2) return; // wait for a meaningful query
+    timer = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API}/api/v1/schools?q=${encodeURIComponent(q)}`);
+        const d = await r.json();
+        const list = d.schools || [];
+        fillSchoolSelect(list, `Search: “${q}”`);
+        setSchoolHint(list.length
+          ? `${d.total_matches} match${d.total_matches === 1 ? "" : "es"} for “${q}”${d.capped ? ` (showing first ${d.count})` : ""}. Pick one below.`
+          : `No California public school matches “${q}”.`);
+      } catch (e) { /* ignore transient errors */ }
+    }, 300);
+  });
+})();
+
+// Seed the picker with the individually-verified curated set so it isn't empty
+// before an address is checked (and keeps that trusted list one selection away).
+// Skipped if an address check has already populated a nearer list.
+(async function seedCuratedSchools() {
   try {
     const r = await fetch(`${API}/api/v1/schools`);
     const d = await r.json();
-    SCHOOLS_DATA = Array.isArray(d.schools) ? d.schools : [];
-    renderSchoolOptions();
-  } catch (e) { /* leave dropdown empty */ }
+    if (!LAST_LOC && Array.isArray(d.schools) && d.schools.length) fillSchoolSelect(d.schools, "Verified East Bay schools");
+  } catch (e) { /* dropdown stays empty; search + address paths still work */ }
 })();
 
 $("#school-btn").addEventListener("click", async () => {

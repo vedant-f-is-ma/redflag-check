@@ -35,7 +35,10 @@ function normStateCode(raw: unknown): string | undefined {
   return /^[A-Z]{2}$/.test(code) ? code : undefined;
 }
 
-async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
+// Exported so the offline schools data-prep script can label coordinate
+// provenance precisely (geocoded_census vs geocoded_geoapify). Not used on the
+// per-request path — geocodeAddress() remains the runtime entry point.
+export async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
   const url = new URL("https://geocoding.geo.census.gov/geocoder/locations/onelineaddress");
   url.searchParams.set("address", address);
   url.searchParams.set("benchmark", "Public_AR_Current");
@@ -59,7 +62,7 @@ async function geocodeCensus(address: string): Promise<GeocodeResult | null> {
   }
 }
 
-async function geocodeGeoapify(address: string): Promise<GeocodeResult | null> {
+export async function geocodeGeoapify(address: string): Promise<GeocodeResult | null> {
   const key = (typeof process !== "undefined" && process.env && process.env.GEOAPIFY_API_KEY) || "";
   if (!key) return null;
   try {

@@ -1,0 +1,110 @@
+{
+  "cde_source_url": "https://www.cde.ca.gov/schooldirectory/report?rid=dl1&tp=txt",
+  "downloaded": "2026-07-18",
+  "cde_total_rows": 18394,
+  "active_real_schools_in_ca": 10531,
+  "shipped": {
+    "cde_bulk": 10506,
+    "curated": 27,
+    "total": 10533
+  },
+  "coord_source_counts": {
+    "cde_provided": 10525,
+    "geocoded_census": 5,
+    "geocoded_geoapify": 3
+  },
+  "geocoding_failures": 0,
+  "curated_flags": [],
+  "spotcheck": {
+    "sampled": 105,
+    "checked": 105,
+    "revgeo_failed": 0,
+    "city_mismatches": [
+      {
+        "id": "19647256015572",
+        "name": "Jessie Nelson Academy",
+        "cde_city": "Signal Hill",
+        "revgeo": "near East 19th Street, Long Beach"
+      },
+      {
+        "id": "19647330109512",
+        "name": "Cal Burke High",
+        "cde_city": "Panorama City",
+        "revgeo": "near Lanark Street, Los Angeles"
+      },
+      {
+        "id": "19647336016901",
+        "name": "Emelita Street Elementary",
+        "cde_city": "Encino",
+        "revgeo": "near Hatteras Street, Los Angeles"
+      },
+      {
+        "id": "19647336017966",
+        "name": "Lorne Street Elementary",
+        "cde_city": "Northridge",
+        "revgeo": "near Lorne Street, Los Angeles"
+      },
+      {
+        "id": "19648326020804",
+        "name": "Peachland Avenue Elementary",
+        "cde_city": "Newhall",
+        "revgeo": "near Peachland Avenue, Santa Clarita"
+      },
+      {
+        "id": "19649986022669",
+        "name": "Emblem Academy",
+        "cde_city": "Saugus",
+        "revgeo": "near Las Tigres Drive, Santa Clarita"
+      },
+      {
+        "id": "19734451935246",
+        "name": "Los Altos High",
+        "cde_city": "Hacienda Heights",
+        "revgeo": "near East Los Robles Avenue, Hillgrove"
+      },
+      {
+        "id": "21654822134419",
+        "name": "San Andreas High (Continuation)",
+        "cde_city": "Larkspur",
+        "revgeo": "near Birch Avenue, Corte Madera"
+      },
+      {
+        "id": "37681896120901",
+        "name": "Barona Charter",
+        "cde_city": "Lakeside",
+        "revgeo": "near Barona Road, Barona"
+      },
+      {
+        "id": "39686356042444",
+        "name": "Oak View Elementary",
+        "cde_city": "Acampo",
+        "revgeo": "near Collier Road, Collierville"
+      },
+      {
+        "id": "42691206045975",
+        "name": "Arellanes (Don Juan Bautista) Elementary",
+        "cde_city": "Santa Maria",
+        "revgeo": "near Sandalwood Drive, Orcutt"
+      },
+      {
+        "id": "45698564530051",
+        "name": "Oakview High (Alternative)",
+        "cde_city": "Anderson",
+        "revgeo": "near Olinda Creek, Shasta County"
+      },
+      {
+        "id": "54721406054373",
+        "name": "Stone Corral Elementary",
+        "cde_city": "Visalia",
+        "revgeo": "near Avenue 383, Seville"
+      },
+      {
+        "id": "56724626055115",
+        "name": "Sunkist Elementary",
+        "cde_city": "Port Hueneme",
+        "revgeo": "near Teakwood Street, Oxnard"
+      }
+    ]
+  },
+  "agree_tolerance_mi": 0.2
+}

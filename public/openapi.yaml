@@ -49,7 +49,7 @@ tags:
   - name: status
     description: List of active Red Flag Warnings across a US state.
   - name: schools
-    description: Per-campus decision view for supported East Bay schools.
+    description: Find schools near a point (statewide CA public-school directory) and per-campus decision views.
   - name: buddy
     description: Generated check-in templates (SMS, email, .ics calendar) for neighbor outreach.
   - name: health
@@ -143,17 +143,56 @@ paths:
     get:
       tags: [schools]
       operationId: listSchools
-      summary: List of supported East Bay schools with pre-resolved coordinates.
+      summary: Find schools near a point, or search all California public schools by name.
       description: |
-        Returns the catalog of supported schools for use with `/school-status`. Each school
-        includes its `id` (use this with `/school-status?id=...`), name, district, address,
-        and lat/lng. Currently covers East Bay districts; PRs to expand are welcome.
+        Server-side school lookup over the full California Department of Education public-school
+        directory (~10.5k active schools) plus an individually-verified curated set. The full
+        list is never shipped to the client; pick a mode via query params:
+
+        * **Radius** — `?lat=&lng=[&radius_mi=]` returns schools within the radius (default 10 mi),
+          nearest first, each with `distance_mi`. In sparse/rural areas the radius auto-expands
+          until a few results are found (`auto_expanded: true`, up to 60 mi); in dense areas the
+          list is capped (`capped: true`) — check `total_within_radius` for the true count.
+        * **Search** — `?q=` matches by name, city, or district (for open-enrollment, magnet, or
+          boarding-school cases where the nearest campus isn't the relevant one).
+        * **No params** — returns only the curated, individually-verified set (backward compatible).
+
+        Every returned record carries the same `id` used by `/school-status?id=...`.
+      parameters:
+        - name: lat
+          in: query
+          required: false
+          description: Latitude for a radius query (pair with `lng`).
+          schema: { type: number }
+          example: 32.7157
+        - name: lng
+          in: query
+          required: false
+          description: Longitude for a radius query (pair with `lat`).
+          schema: { type: number }
+          example: -117.1611
+        - name: radius_mi
+          in: query
+          required: false
+          description: Search radius in miles for a radius query. Default 10, capped at 60.
+          schema: { type: number, default: 10 }
+        - name: q
+          in: query
+          required: false
+          description: Name/city/district search text (independent of distance).
+          schema: { type: string }
+          example: Torrey Pines High
       responses:
         "200":
-          description: Catalog of supported schools.
+          description: Nearby schools, search matches, or the curated list, depending on the mode.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/SchoolsResponse" }
+        "400":
+          description: Invalid lat/lng.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
 
   /school-status:
     get:
@@ -420,21 +459,37 @@ components:
     SchoolsResponse:
       type: object
       properties:
-        count:   { type: integer }
+        mode:                { type: string, enum: [radius, search, curated] }
+        count:               { type: integer, description: Number of schools returned (after any cap). }
         schools:
           type: array
           items: { $ref: "#/components/schemas/School" }
+        # radius mode only
+        applied_radius_mi:   { type: number, description: "Radius actually used (may exceed the requested value if auto-expanded)." }
+        auto_expanded:       { type: boolean, description: "True if the radius was grown to find enough results." }
+        total_within_radius: { type: integer, description: "True count within the applied radius, before the result cap." }
+        # search mode only
+        total_matches:       { type: integer, description: "True match count, before the result cap." }
+        capped:              { type: boolean, description: "True if more results existed than were returned." }
+        generated_at:        { type: string, format: date-time }
 
     School:
       type: object
       properties:
-        id:       { type: string, example: "skyline-oakland" }
-        name:     { type: string, example: "Skyline High School" }
-        district: { type: string, example: "Oakland Unified" }
-        address:  { type: string, example: "12250 Skyline Blvd" }
-        city:     { type: string, example: "Oakland" }
-        lat:      { type: number, example: 37.7811 }
-        lng:      { type: number, example: -122.1556 }
+        id:           { type: string, example: "skyline-oakland", description: "Use with /school-status?id=..." }
+        name:         { type: string, example: "Skyline High School" }
+        district:     { type: string, example: "Oakland Unified" }
+        address:      { type: string, example: "12250 Skyline Blvd" }
+        city:         { type: string, example: "Oakland" }
+        lat:          { type: number, example: 37.79749 }
+        lng:          { type: number, example: -122.1636 }
+        source:       { type: string, enum: [curated, cde], description: "curated = individually human-verified; cde = bulk CDE directory import." }
+        coord_source: { type: string, enum: [cde_provided, geocoded_census, geocoded_geoapify], description: "Provenance of the coordinate." }
+        distance_mi:  { type: number, description: "Miles from the query point (radius mode only)." }
+        zone_class:   { type: string, enum: [hills, ridge, flats], description: "Hand-classified fire context (curated schools only)." }
+        cds:          { type: string, description: "CDE CDSCode (curated records link to their authoritative CDE row)." }
+        zip:          { type: string }
+        county:       { type: string }
 
     SchoolStatusResponse:
       type: object

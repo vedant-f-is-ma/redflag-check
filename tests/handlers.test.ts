@@ -8,7 +8,7 @@ import staticMap from "../api/v1/static-map";
 import buddyTemplate from "../api/v1/buddy-template";
 import welcome from "../api/v1/welcome";
 import health from "../api/v1/health";
-import { SCHOOLS, findSchool } from "../api/_schools";
+import { SCHOOLS, CDE_SCHOOLS, ALL_SCHOOLS, findSchool } from "../api/_schools";
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; delete process.env.GEOAPIFY_API_KEY; });
@@ -180,6 +180,92 @@ describe("schools + _schools", () => {
   test("findSchool by id", () => {
     expect(findSchool(SCHOOLS[0].id)?.id).toBe(SCHOOLS[0].id);
     expect(findSchool("nope")).toBeUndefined();
+  });
+});
+
+describe("schools radius + search", () => {
+  const SJ = async (path: string) => await (await schools(req(path))).json();
+
+  test("radius: nearby schools, sorted by distance, each with distance_mi", async () => {
+    const b = findSchool("berkeley-high")!;
+    const d = await SJ(`/api/v1/schools?lat=${b.lat}&lng=${b.lng}&radius_mi=5`);
+    expect(d.mode).toBe("radius");
+    const self = d.schools.find((s: any) => s.id === "berkeley-high");
+    expect(self).toBeDefined();
+    expect(self.distance_mi).toBeLessThan(0.1); // querying its own coords
+    const dists = d.schools.map((s: any) => s.distance_mi);
+    expect(dists).toEqual([...dists].sort((x: number, y: number) => x - y)); // ascending
+    expect(d.schools.every((s: any) => s.distance_mi <= d.applied_radius_mi)).toBe(true);
+  });
+
+  test("radius: far-away schools are excluded", async () => {
+    const b = findSchool("berkeley-high")!;
+    const d = await SJ(`/api/v1/schools?lat=${b.lat}&lng=${b.lng}&radius_mi=5`);
+    expect(d.schools.every((s: any) => s.county !== "San Diego")).toBe(true);
+  });
+
+  test("radius: auto-expands in a sparse area", async () => {
+    const d = await SJ("/api/v1/schools?lat=41.5&lng=-120.3&radius_mi=1"); // remote NE California
+    expect(d.auto_expanded).toBe(true);
+    expect(d.applied_radius_mi).toBeGreaterThan(1);
+    expect(d.count).toBeGreaterThanOrEqual(1);
+  });
+
+  test("radius: caps dense results and reports the true total", async () => {
+    const d = await SJ("/api/v1/schools?lat=34.0522&lng=-118.2437&radius_mi=10"); // downtown LA
+    expect(d.capped).toBe(true);
+    expect(d.count).toBe(50); // MAX_RESULTS
+    expect(d.total_within_radius).toBeGreaterThan(50);
+  });
+
+  test("radius: invalid lat/lng -> 400", async () => {
+    expect((await schools(req("/api/v1/schools?lat=abc&lng=xyz"))).status).toBe(400);
+  });
+
+  test("search: matches by name across the statewide set", async () => {
+    const d = await SJ("/api/v1/schools?q=Torrey+Pines");
+    expect(d.mode).toBe("search");
+    expect(d.schools.some((s: any) => s.name.includes("Torrey Pines"))).toBe(true);
+  });
+
+  test("search: finds a curated school too", async () => {
+    const d = await SJ("/api/v1/schools?q=Skyline");
+    expect(d.schools.some((s: any) => s.id === "skyline-oakland")).toBe(true);
+  });
+});
+
+describe("school-status resolves ids from both sources", () => {
+  test("a curated id and a cde id both resolve to a verdict", async () => {
+    routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
+    const cur = await (await schoolStatus(req("/api/v1/school-status?id=" + SCHOOLS[0].id))).json();
+    expect(cur.school.source).toBe("curated");
+    expect(cur.verdict).toBeDefined();
+
+    const cdeSchool = CDE_SCHOOLS[0];
+    const cde = await (await schoolStatus(req("/api/v1/school-status?id=" + cdeSchool.id))).json();
+    expect(cde.school.source).toBe("cde");
+    expect(cde.school.id).toBe(cdeSchool.id);
+    expect(cde.verdict).toBeDefined();
+  });
+});
+
+describe("schools dataset provenance", () => {
+  test("every record has a valid coord_source and sits in the CA bounding box", () => {
+    const VALID = new Set(["cde_provided", "geocoded_census", "geocoded_geoapify"]);
+    for (const s of ALL_SCHOOLS) {
+      expect(VALID.has(s.coord_source)).toBe(true);
+      expect(s.source === "curated" || s.source === "cde").toBe(true);
+      expect(Number.isFinite(s.lat) && Number.isFinite(s.lng)).toBe(true);
+      expect(s.lat >= 32.5 && s.lat <= 42.0).toBe(true);
+      expect(s.lng >= -124.5 && s.lng <= -114.0).toBe(true);
+    }
+  });
+
+  test("curated schools are deduped out of the bulk set; no duplicate ids", () => {
+    const cdeIds = new Set(CDE_SCHOOLS.map((s) => s.id));
+    for (const c of SCHOOLS) if (c.cds) expect(cdeIds.has(c.cds)).toBe(false);
+    const ids = ALL_SCHOOLS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
