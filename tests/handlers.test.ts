@@ -232,6 +232,11 @@ describe("schools radius + search", () => {
     const d = await SJ("/api/v1/schools?q=Skyline");
     expect(d.schools.some((s: any) => s.id === "skyline-oakland")).toBe(true);
   });
+
+  test("search: multi-word tokens match out of order (Chula Vista High -> ...Senior High)", async () => {
+    const d = await SJ("/api/v1/schools?q=Chula+Vista+High");
+    expect(d.schools.some((s: any) => s.name === "Chula Vista Senior High")).toBe(true);
+  });
 });
 
 describe("school-status resolves ids from both sources", () => {

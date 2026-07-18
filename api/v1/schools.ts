@@ -35,17 +35,22 @@ export default async function handler(req: Request): Promise<Response> {
   // ---- Name search (independent of distance) ----
   if (q !== null && q.trim() !== "") {
     const needle = q.trim().toLowerCase();
-    const matches = ALL_SCHOOLS.filter(
-      (s) =>
-        s.name.toLowerCase().includes(needle) ||
-        s.city.toLowerCase().includes(needle) ||
-        s.district.toLowerCase().includes(needle)
-    );
-    // Name-prefix matches first, then alphabetical.
+    const tokens = needle.split(/\s+/).filter(Boolean);
+    // Every token must appear somewhere in name/city/district, in any order — so a
+    // natural query like "Chula Vista High" still finds "Chula Vista Senior High"
+    // (naive whole-string substring matching would miss it).
+    const matches = ALL_SCHOOLS.filter((s) => {
+      const hay = `${s.name} ${s.city} ${s.district}`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+    // Rank: whole-query name matches first, then name starts-with the first token,
+    // then alphabetical.
     matches.sort((a, b) => {
-      const ap = a.name.toLowerCase().startsWith(needle) ? 0 : 1;
-      const bp = b.name.toLowerCase().startsWith(needle) ? 0 : 1;
-      return ap - bp || a.name.localeCompare(b.name);
+      const an = a.name.toLowerCase();
+      const bn = b.name.toLowerCase();
+      const as = an.includes(needle) ? 0 : an.startsWith(tokens[0]) ? 1 : 2;
+      const bs = bn.includes(needle) ? 0 : bn.startsWith(tokens[0]) ? 1 : 2;
+      return as - bs || a.name.localeCompare(b.name);
     });
     return jsonResponse({
       mode: "search",
