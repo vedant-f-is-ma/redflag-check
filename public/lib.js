@@ -143,19 +143,29 @@ export function mapOverlay(youPx, verdict, zoomLevel) {
   return `<svg class="geomap-overlay" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${parts}</svg>`;
 }
 
+// Downwind tiers (red/orange/yellow), per Ian Moore/SIG feedback 2026-07-13: distance
+// within the same downwind cone changes the dominant risk (flame vs. smoke). Demo-mode
+// distances chosen to sit clearly inside each tier band (see DOWNWIND_TIER_*_MAX_MI in
+// api/_lib.ts: red <=5mi, orange <=15mi, yellow <=25mi).
+const DOWNWIND_TIER_DEMO_DISTANCE_MI = { downwind_red: 3, downwind_orange: 10, downwind_threat: 8, downwind_yellow: 20 };
+
 // Synthetic warning-area ring for demo mode (so ?demo= states show the geo-map).
 export function demoRing(state) {
   const uLat = 37.7, uLng = -122.0, DEG = 69.0;
-  const distMi = state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18;
+  const distMi = state === "in_zone" ? 0
+    : state === "adjacent" ? 3
+    : DOWNWIND_TIER_DEMO_DISTANCE_MI[state] !== undefined ? DOWNWIND_TIER_DEMO_DISTANCE_MI[state]
+    : 18;
   const bearing = 45 * Math.PI / 180; // NE
   let cLat, cLng, rMi;
   if (state === "in_zone") {
     cLat = uLat + 0.03; cLng = uLng + 0.035; rMi = 7;
   } else {
+    const isDownwind = state === "adjacent" || DOWNWIND_TIER_DEMO_DISTANCE_MI[state] !== undefined;
     const centerDist = distMi + (state === "adjacent" ? 2.5 : 4);
     cLat = uLat + (centerDist / DEG) * Math.cos(bearing);
     cLng = uLng + (centerDist / (DEG * Math.cos(uLat * Math.PI / 180))) * Math.sin(bearing);
-    rMi = state === "safe_tonight" ? 6 : 3.5;
+    rMi = state === "safe_tonight" ? 6 : isDownwind ? 3.5 : 6;
   }
   const cosLat = Math.cos(cLat * Math.PI / 180), pts = [], n = 14;
   for (let i = 0; i < n; i++) {
@@ -172,7 +182,10 @@ export function demoVerdict(state) {
   const np = {
     polygon_id: "demo",
     polygon_headline: "Red Flag Warning issued for your area",
-    distance_mi: state === "in_zone" ? 0 : state === "adjacent" ? 3 : state === "downwind_threat" ? 8 : 18,
+    distance_mi: state === "in_zone" ? 0
+      : state === "adjacent" ? 3
+      : DOWNWIND_TIER_DEMO_DISTANCE_MI[state] !== undefined ? DOWNWIND_TIER_DEMO_DISTANCE_MI[state]
+      : 18,
     bearing_to_polygon_deg: 45,
     bearing_to_polygon_compass: "NE",
     nearest_lat: 37.78,
@@ -186,15 +199,39 @@ export function demoVerdict(state) {
       short_explanation: "Take action tonight: prepare a go-bag and be ready to leave if instructed.",
       nearest_polygon: np,
       wind_vector: wind,
-      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "" },
+      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", tier: null, explanation: "" },
     },
     downwind_threat: {
       state: "downwind_threat",
-      headline: "Wind is pushing fire conditions toward your address tonight.",
-      short_explanation: "Active warning is 8 mi NE of you. Tonight's wind is from the NE at 35 mph. That means fire-favorable conditions are pointing toward you.",
+      headline: "Elevated fire and smoke threat headed your way over the next day or two.",
+      short_explanation: "Active warning is 8 mi NE of you. Tonight's wind is from the NE at 35 mph. Expect elevated fire and smoke conditions over the next day or two. Prepare a go-bag and monitor official updates.",
       nearest_polygon: np,
       wind_vector: wind,
-      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "high", explanation: "" },
+      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "high", tier: "orange", explanation: "" },
+    },
+    downwind_red: {
+      state: "downwind_threat",
+      headline: "High fire threat: wind is pushing fire conditions toward your address tonight.",
+      short_explanation: "Active warning is 3 mi NE of you. Tonight's wind is from the NE at 35 mph. Be ready to evacuate or follow local emergency instructions immediately.",
+      nearest_polygon: np,
+      wind_vector: wind,
+      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "high", tier: "red", explanation: "" },
+    },
+    downwind_orange: {
+      state: "downwind_threat",
+      headline: "Elevated fire and smoke threat headed your way over the next day or two.",
+      short_explanation: "Active warning is 10 mi NE of you. Tonight's wind is from the NE at 35 mph. Expect elevated fire and smoke conditions over the next day or two. Prepare a go-bag and monitor official updates.",
+      nearest_polygon: np,
+      wind_vector: wind,
+      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "moderate", tier: "orange", explanation: "" },
+    },
+    downwind_yellow: {
+      state: "downwind_threat",
+      headline: "Smoke and air quality risk from a warning area upwind of you.",
+      short_explanation: "Active warning is 20 mi NE of you. Tonight's wind is from the NE at 35 mph. Smoke and air quality impacts are the main concern right now. Direct fire threat is lower in the short term, but conditions can change quickly.",
+      nearest_polygon: np,
+      wind_vector: wind,
+      downwind: { triggered: true, alignment_angle_deg: 0, threat_level: "low", tier: "yellow", explanation: "" },
     },
     adjacent: {
       state: "adjacent",
@@ -202,7 +239,7 @@ export function demoVerdict(state) {
       short_explanation: "Nearest active warning is 3 mi NE of you. Conditions could shift.",
       nearest_polygon: np,
       wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 12 },
-      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
+      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", tier: null, explanation: "" },
     },
     safe_tonight: {
       state: "safe_tonight",
@@ -210,23 +247,24 @@ export function demoVerdict(state) {
       short_explanation: "Active warning is 18 mi away and wind is blowing fire conditions away from you.",
       nearest_polygon: np,
       wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 14 },
-      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", explanation: "" },
+      downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", tier: null, explanation: "" },
     },
   };
   const verdict = states[state] || states.safe_tonight;
+  const effState = verdict.state; // demo tier keys (downwind_red/orange/yellow) map to the real "downwind_threat" state
   return {
     location: { lat: 37.7, lng: -122.0, matched_address: "DEMO ADDRESS, FREMONT, CA", zip: "94538" },
     verdict,
     action_checklist: {
-      category: state === "in_zone" ? "in_zone" : (state === "downwind_threat" || state === "adjacent") ? "adjacent" : "out_of_zone",
-      do_now: state === "in_zone"
+      category: effState === "in_zone" ? "in_zone" : (effState === "downwind_threat" || effState === "adjacent") ? "adjacent" : "out_of_zone",
+      do_now: effState === "in_zone"
         ? ["Charge your phone. Keep car keys near the door.", "Park your car facing OUTWARD on the driveway.", "Pack a go-bag: meds, IDs, phone charger, water, sturdy shoes.", "Set a buddy to text-check you at 11 PM tonight."]
-        : state === "downwind_threat"
+        : effState === "downwind_threat"
         ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
-        : state === "adjacent"
+        : effState === "adjacent"
         ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for your county's emergency alerts if you haven't.", "Know your Genasys zone in case conditions change."]
         : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills. They may be in the active polygon."],
-      do_not: state === "in_zone" || state === "downwind_threat"
+      do_not: effState === "in_zone" || effState === "downwind_threat"
         ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
         : ["Avoid sparking activities outdoors during fire season."],
       if_evacuation_called: [],
@@ -245,8 +283,8 @@ export function demoVerdict(state) {
       },
       risk_forecast: {
         run_date: (() => { const d = new Date(); return `${d.getUTCFullYear()}${String(d.getUTCMonth()+1).padStart(2,"0")}${String(d.getUTCDate()).padStart(2,"0")}_12`; })(),
-        max_impacted_structures: state === "in_zone" ? 127 : state === "downwind_threat" ? 89 : state === "adjacent" ? 23 : 0,
-        is_active: state !== "safe_tonight",
+        max_impacted_structures: effState === "in_zone" ? 127 : effState === "downwind_threat" ? 89 : effState === "adjacent" ? 23 : 0,
+        is_active: effState !== "safe_tonight",
       },
       source: "Pyrecast/Pyregence, ELMFIRE model, LANDFIRE 2.5.0 (open access) [DEMO]",
     },

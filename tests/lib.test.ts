@@ -124,6 +124,66 @@ describe("classifyVerdict", () => {
   });
 });
 
+// Distance-based sub-tier within a triggered downwind result (Ian Moore/SIG feedback,
+// 2026-07-13): red <=5mi, orange <=15mi, yellow <=25mi (same cone as DOWNWIND_MAX_DISTANCE_MI).
+describe("classifyVerdict downwind tiers", () => {
+  const uLat = 37.7, uLng = -122.0;
+  // Places a small (near-point) polygon `distMi` miles NE of the user so tier boundaries
+  // can be tested without the polygon's own footprint shifting the nearest-point distance
+  // by more than a few tenths of a mile.
+  function polygonAtDistance(distMi: number): RedFlagPolygon {
+    const DEG = 69.0;
+    const rad = (45 * Math.PI) / 180;
+    const cLat = uLat + (distMi / DEG) * Math.cos(rad);
+    const cLng = uLng + (distMi / (DEG * Math.cos((uLat * Math.PI) / 180))) * Math.sin(rad);
+    return poly(`d${distMi}`, squareRing(cLat, cLng, 0.005));
+  }
+  test("tier is red well within the 5mi boundary", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(3)], fc("NE", 35));
+    expect(v.state).toBe("downwind_threat");
+    expect(v.downwind.tier).toBe("red");
+    expect(v.headline).toContain("High fire threat");
+  });
+  test("tier is still red just under the 5mi boundary", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(4)], fc("NE", 35));
+    expect(v.downwind.tier).toBe("red");
+  });
+  test("tier is orange just over the 5mi boundary", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(6)], fc("NE", 35));
+    expect(v.downwind.tier).toBe("orange");
+  });
+  test("tier is orange well within the 5-15mi band", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(10)], fc("NE", 35));
+    expect(v.downwind.tier).toBe("orange");
+    expect(v.headline).toContain("Elevated fire and smoke threat");
+  });
+  test("tier is still orange just under the 15mi boundary", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(14)], fc("NE", 35));
+    expect(v.downwind.tier).toBe("orange");
+  });
+  test("tier is yellow just over the 15mi boundary", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(16)], fc("NE", 35));
+    expect(v.downwind.tier).toBe("yellow");
+  });
+  test("tier is yellow near the outer 25mi edge of the downwind cone", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(24)], fc("NE", 35));
+    expect(v.state).toBe("downwind_threat");
+    expect(v.downwind.tier).toBe("yellow");
+    expect(v.headline).toContain("Smoke and air quality risk");
+  });
+  test("tier is null when downwind isn't triggered", () => {
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(10)], fc("SW", 30)); // wind blowing away
+    expect(v.downwind.triggered).toBe(false);
+    expect(v.downwind.tier).toBeNull();
+  });
+  test("tier is null for in_zone (tiering only applies within downwind_threat)", () => {
+    const p = poly("a", squareRing(37.8, -122.0, 0.05));
+    const v = classifyVerdict(37.8, -122.0, [p], fc("NE", 30));
+    expect(v.state).toBe("in_zone");
+    expect(v.downwind.tier).toBeNull();
+  });
+});
+
 describe("buildActionChecklist", () => {
   test("in_zone category", () => {
     const c = buildActionChecklist(true, false);

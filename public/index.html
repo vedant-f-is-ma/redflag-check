@@ -467,6 +467,31 @@
     background: rgba(217, 154, 30, 0.13);
   }
 
+  /* Downwind tiers (red/orange/yellow by distance), per Ian Moore/SIG feedback 2026-07-13.
+     Reuse the exact in-zone/downwind-threat/adjacent palettes -- tier is a sub-state of
+     downwind_threat, not a new top-level state, so it borrows already-tested colors. */
+  .situation-card.state-downwind-threat.tier-red {
+    background: rgba(255, 68, 68, 0.16);
+    border-color: var(--danger);
+  }
+  .situation-card.state-downwind-threat.tier-orange {
+    background: rgba(255, 107, 61, 0.16);
+    border-color: var(--accent);
+  }
+  .situation-card.state-downwind-threat.tier-yellow {
+    background: rgba(255, 200, 50, 0.10);
+    border-color: #ffc832;
+  }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-red {
+    background: rgba(197, 35, 42, 0.12);
+  }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-orange {
+    background: rgba(217, 79, 29, 0.13);
+  }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-yellow {
+    background: rgba(217, 154, 30, 0.13);
+  }
+
   .situation-card .verdict-title {
     margin: 0 0 .2rem;
     font-size: 1.25rem;
@@ -480,6 +505,12 @@
   html[data-theme="light"] .situation-card.state-in-zone .verdict-title { color: #8a1a1a; }
   html[data-theme="light"] .situation-card.state-downwind-threat .verdict-title { color: #8a3500; }
   html[data-theme="light"] .situation-card.state-adjacent .verdict-title { color: #6a4500; }
+  .situation-card.state-downwind-threat.tier-red .verdict-title { color: #ffd5d5; }
+  .situation-card.state-downwind-threat.tier-orange .verdict-title { color: #ffdcc0; }
+  .situation-card.state-downwind-threat.tier-yellow .verdict-title { color: #ffe8a0; }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-red .verdict-title { color: #8a1a1a; }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-orange .verdict-title { color: #8a3500; }
+  html[data-theme="light"] .situation-card.state-downwind-threat.tier-yellow .verdict-title { color: #6a4500; }
 
   .situation-card .matched-address {
     margin: 0 0 .75rem;
@@ -1489,6 +1520,8 @@ function renderZoneResult(d) {
   const v = d.verdict || {};
   const state = v.state || "safe_tonight";
   const stateClass = state.replace(/_/g, "-");      // e.g. "downwind-threat"
+  const tier = v.downwind && v.downwind.tier;       // "red" | "orange" | "yellow" | null, sub-tier within downwind_threat
+  const tierClass = tier ? ` tier-${tier}` : "";
   const headline = v.headline || "Result";
   const explanation = v.short_explanation || "";
 
@@ -1620,7 +1653,7 @@ function renderZoneResult(d) {
     <p class="small" style="margin-top:.5rem;opacity:0.85;line-height:1.5">📡 Watch for updates: if conditions change, official alerts will upgrade your area. <a href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Make sure you're signed up for local alerts.</a></p>` : "";
 
   return `
-    <div class="situation-card state-${stateClass}">
+    <div class="situation-card state-${stateClass}${tierClass}">
       <h2 class="verdict-title">${esc(headline)}</h2>
       ${matchedAddr}
       ${freshLine}
@@ -1642,8 +1675,8 @@ function renderZoneResult(d) {
   `;
 }
 
-// Demo mode: ?demo=in_zone|downwind_threat|adjacent|safe_tonight
-// Lets you preview all 4 verdict states without waiting for a real warning.
+// Demo mode: ?demo=in_zone|downwind_threat|downwind_red|downwind_orange|downwind_yellow|adjacent|safe_tonight
+// Lets you preview all verdict states (and downwind tiers) without waiting for a real warning.
 // Synthetic warning-area ring for demo mode (so ?demo= states show the geo-map).
 // Builds an irregular blob NE of the demo user, sized/placed by state.
 // demoRing + demoVerdict moved to ./lib.js
@@ -1918,14 +1951,14 @@ function renderBuddyResult(d) {
   });
 })();
 
-// ---------- Demo mode (?demo=in_zone|downwind_threat|adjacent|safe_tonight) ----------
-// Lets reviewers (fire-safety council folks) preview each of the 4 verdict states
-// without waiting for a real Red Flag Warning.
+// ---------- Demo mode (?demo=in_zone|downwind_threat|downwind_red|downwind_orange|downwind_yellow|adjacent|safe_tonight) ----------
+// Lets reviewers (fire-safety council folks) preview each verdict state, including the
+// three downwind tiers, without waiting for a real Red Flag Warning.
 (function setupDemoMode() {
   const params = new URLSearchParams(location.search);
   const demoState = params.get("demo");
   if (!demoState) return;
-  const valid = ["in_zone", "downwind_threat", "adjacent", "safe_tonight"];
+  const valid = ["in_zone", "downwind_threat", "downwind_red", "downwind_orange", "downwind_yellow", "adjacent", "safe_tonight"];
   if (!valid.includes(demoState)) return;
   const data = demoVerdict(demoState);
   const out = $("#zone-result");
@@ -1952,7 +1985,7 @@ function renderBuddyResult(d) {
   // Show a small "DEMO" badge so it's clear this isn't real data
   const banner = document.createElement("div");
   banner.style.cssText = "background:#2a2a2a;border:1px dashed #888;padding:.5rem .8rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem;color:#aaa;text-align:center;";
-  banner.innerHTML = `DEMO PREVIEW: <strong style="color:#fff">${demoState.replace("_", " ")}</strong> state. <a href="/" style="color:var(--accent)">Try a real address →</a> · Switch state: <a href="?demo=in_zone" style="color:#ffaaaa">in zone</a> · <a href="?demo=downwind_threat" style="color:#ffdcc0">downwind</a> · <a href="?demo=adjacent" style="color:#ffe8a0">adjacent</a> · <a href="?demo=safe_tonight" style="color:#c0f0c8">safe</a>`;
+  banner.innerHTML = `DEMO PREVIEW: <strong style="color:#fff">${demoState.replace(/_/g, " ")}</strong> state. <a href="/" style="color:var(--accent)">Try a real address →</a> · Switch state: <a href="?demo=in_zone" style="color:#ffaaaa">in zone</a> · <a href="?demo=downwind_threat" style="color:#ffdcc0">downwind</a> · <a href="?demo=downwind_red" style="color:#ffaaaa">downwind red</a> · <a href="?demo=downwind_orange" style="color:#ffdcc0">downwind orange</a> · <a href="?demo=downwind_yellow" style="color:#ffe8a0">downwind yellow</a> · <a href="?demo=adjacent" style="color:#ffe8a0">adjacent</a> · <a href="?demo=safe_tonight" style="color:#c0f0c8">safe</a>`;
   out.parentElement.insertBefore(banner, out);
 })();
 </script>

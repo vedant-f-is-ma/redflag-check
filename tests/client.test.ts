@@ -48,6 +48,28 @@ describe("demoVerdict", () => {
   });
 });
 
+describe("demoVerdict downwind tiers", () => {
+  const TIER_STATES = ["downwind_red", "downwind_orange", "downwind_yellow"];
+  test("each tier demo key maps to the real downwind_threat state with its tier set", () => {
+    for (const s of TIER_STATES) {
+      const d = demoVerdict(s);
+      expect(d.verdict.state).toBe("downwind_threat");
+      expect(d.verdict.downwind.triggered).toBe(true);
+      expect(d.verdict.downwind.tier).toBe(s.replace("downwind_", ""));
+      expect(d.action_checklist.category).toBe("adjacent");
+      expect(d.action_checklist.do_now.length).toBeGreaterThan(0);
+      expect(d.verdict.nearest_polygon.ring.length).toBeGreaterThan(3);
+    }
+  });
+  test("demoRing renders a valid ring for each tier state", () => {
+    for (const s of TIER_STATES) {
+      const ring = demoRing(s);
+      expect(ring[0]).toEqual(ring[ring.length - 1]);
+      expect(ring.every((p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]))).toBe(true);
+    }
+  });
+});
+
 describe("geoMapSVG", () => {
   const verdict = demoVerdict("downwind_threat").verdict;
   const location = { lat: 37.7, lng: -122.0 };

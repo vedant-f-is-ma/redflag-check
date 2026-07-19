@@ -567,6 +567,13 @@ export interface DownwindAnalysis {
   triggered: boolean;
   alignment_angle_deg: number | null;  // 0 = wind comes from exactly the polygon's direction
   threat_level: "high" | "moderate" | "low" | "none";
+  // Distance-based sub-tier within a triggered downwind result, per Ian Moore (SIG/Pyrecast)
+  // fire-professional feedback, 2026-07-13: distance changes what the dominant risk actually
+  // is (direct flame/ember threat vs. mostly smoke), so a single "downwind" state undersells
+  // that difference. null when not triggered. This does NOT change the top-level `state`
+  // (still just in_zone/downwind_threat/adjacent/safe_tonight) or the action checklist --
+  // only the color/copy get more specific. See wiki: ian-moore-call-outcome-tiered-zones.md.
+  tier: "red" | "orange" | "yellow" | null;
   explanation: string;
 }
 
@@ -583,6 +590,14 @@ const DOWNWIND_MAX_DISTANCE_MI = 25;     // beyond this, wind alignment doesn't 
 const DOWNWIND_ALIGNMENT_DEG = 60;       // wind direction must be within ±this of polygon's bearing
 const DOWNWIND_MIN_WIND_MPH = 15;        // below this, wind isn't strong enough to materially push fire conditions
 const ADJACENT_MAX_DISTANCE_MI = 5;      // within this, always flag as adjacent regardless of wind
+
+// Tier boundaries WITHIN a triggered downwind result (Ian Moore/SIG feedback, 2026-07-13).
+// Same 25mi cone as DOWNWIND_MAX_DISTANCE_MI above -- this only subdivides an already-
+// triggered downwind result, it never changes whether downwind triggers at all.
+const DOWNWIND_TIER_RED_MAX_MI = 5;      // possible direct flame/ember impact within hours to <1 day
+const DOWNWIND_TIER_ORANGE_MAX_MI = 15;  // elevated spread/spotting risk in the next 1-2 days, smoke likely
+// beyond DOWNWIND_TIER_ORANGE_MAX_MI, up to DOWNWIND_MAX_DISTANCE_MI, is "yellow": smoke/air-quality
+// is the dominant near-term risk, direct flame front is lower-probability but not impossible.
 
 export function classifyVerdict(
   userLat: number,
@@ -665,12 +680,12 @@ export function classifyVerdict(
       short_explanation: "Take action tonight: prepare a go-bag and be ready to leave if instructed.",
       nearest_polygon: nearest,
       wind_vector: windVector,
-      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "You are inside the active Red Flag Warning area." },
+      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", tier: null, explanation: "You are inside the active Red Flag Warning area." },
     };
   }
 
   // Compute downwind analysis if there's a nearest polygon
-  let downwind: DownwindAnalysis = { triggered: false, alignment_angle_deg: null, threat_level: "none", explanation: "" };
+  let downwind: DownwindAnalysis = { triggered: false, alignment_angle_deg: null, threat_level: "none", tier: null, explanation: "" };
   if (nearest && windVector && windVector.wind_from_deg !== null) {
     // The question: is the wind coming FROM the polygon's direction?
     // i.e. is bearing_user_to_polygon close to wind_from_deg?
@@ -688,7 +703,19 @@ export function classifyVerdict(
       const speed = Math.min(1, (windVector.wind_speed_mph_peak - DOWNWIND_MIN_WIND_MPH) / 30);
       const score = closeness * 0.4 + align * 0.4 + speed * 0.2;
       downwind.threat_level = score > 0.66 ? "high" : score > 0.33 ? "moderate" : "low";
-      downwind.explanation = `Active warning is ${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass} of you. Tonight's wind is from the ${windVector.wind_from_compass} at ${Math.round(windVector.wind_speed_mph_peak)} mph. That means fire-favorable conditions in the warning area are pointing toward you.`;
+      // Distance-based tier (Ian Moore feedback) -- separate axis from threat_level above.
+      // threat_level blends distance+alignment+speed; tier is purely "how far", because
+      // Ian's point was specifically that the DOMINANT RISK TYPE (flame vs. smoke) changes
+      // with distance regardless of how aligned/fast the wind is.
+      downwind.tier = nearest.distance_mi <= DOWNWIND_TIER_RED_MAX_MI ? "red"
+        : nearest.distance_mi <= DOWNWIND_TIER_ORANGE_MAX_MI ? "orange"
+        : "yellow";
+      const tierGuidance: Record<"red" | "orange" | "yellow", string> = {
+        red: "Be ready to evacuate or follow local emergency instructions immediately.",
+        orange: "Expect elevated fire and smoke conditions over the next day or two. Prepare a go-bag and monitor official updates.",
+        yellow: "Smoke and air quality impacts are the main concern right now. Direct fire threat is lower in the short term, but conditions can change quickly.",
+      };
+      downwind.explanation = `Active warning is ${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass} of you. Tonight's wind is from the ${windVector.wind_from_compass} at ${Math.round(windVector.wind_speed_mph_peak)} mph. ${tierGuidance[downwind.tier]}`;
     } else {
       downwind.threat_level = "none";
       downwind.explanation = nearest.distance_mi > DOWNWIND_MAX_DISTANCE_MI
@@ -701,9 +728,14 @@ export function classifyVerdict(
 
   // Decide state
   if (downwind.triggered) {
+    const tierHeadline: Record<"red" | "orange" | "yellow", string> = {
+      red: "High fire threat: wind is pushing fire conditions toward your address tonight.",
+      orange: "Elevated fire and smoke threat headed your way over the next day or two.",
+      yellow: "Smoke and air quality risk from a warning area upwind of you.",
+    };
     return {
       state: "downwind_threat",
-      headline: "Wind is pushing fire conditions toward your address tonight.",
+      headline: downwind.tier ? tierHeadline[downwind.tier] : "Wind is pushing fire conditions toward your address tonight.",
       short_explanation: downwind.explanation,
       nearest_polygon: nearest,
       wind_vector: windVector,
