@@ -12,7 +12,7 @@ export default async function handler(_req: Request): Promise<Response> {
     name: "redflag-check API",
     version: "v1",
     description:
-      "Free, public, no-auth REST API for East Bay Red Flag Warning lookups, " +
+      "Free, public, no-auth REST API for Red Flag Warning lookups, " +
       "school decisions, and buddy-check templates. Address-based verdicts powered by " +
       "NWS, US Census, and Genasys.",
     docs: "https://redflag-check.info/docs",
@@ -25,7 +25,7 @@ export default async function handler(_req: Request): Promise<Response> {
       "GET /status":
         "All active Red Flag Warnings in a US state. Defaults to CA.",
       "GET /schools":
-        "Catalog of supported East Bay schools (id, name, district, address, lat/lng).",
+        "Schools near a point (lat/lng + radius) or by name search across California public schools; no params returns the curated, human-verified list.",
       "GET /school-status":
         "Per-school decision view with CIF AQI rationale.",
       "GET /buddy-template":

@@ -1,6 +1,6 @@
 # redflag-check
 
-**East Bay Red Flag Warning zone check**, address-in, plain-English-out.
+**Red Flag Warning zone check**, address-in, plain-English-out.
 
 A free, no-signup web tool + public REST API. Built in 48 hours during the 6/10–11 2026 Alameda County Red Flag Warning by a Fremont high schooler.
 
@@ -23,12 +23,12 @@ This tool closes that gap. Type your address → get a clear yes/no, your evacua
 - `public/embed-zone-check.html`, iframe-able widget for any external site
 - `api/v1/zone-check.ts`, primary endpoint, address or coords → verdict + checklist
 - `api/v1/status.ts`, current active Red Flag Warnings in any state
-- `api/v1/schools.ts`, list of supported East Bay schools
+- `api/v1/schools.ts`, schools by radius or name search across California, plus the curated list
 - `api/v1/school-status.ts`, per-school decision view (CIF AQI + wind + RFW)
 - `api/v1/buddy-template.ts`, sms / mailto / .ics for buddy-check messages
 - `api/v1/health.ts`, service + upstream health probe
 - `api/_lib.ts`, Census geocoder, NWS fetchers, action checklist builder
-- `api/_schools.ts`, East Bay school list with pre-resolved coordinates
+- `api/_schools.ts`, curated (human-verified, East Bay) school list plus the bulk California CDE dataset, all with pre-resolved coordinates
 
 ## Data sources
 
