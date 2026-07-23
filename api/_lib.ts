@@ -1023,13 +1023,27 @@ function _parseGrayIndices(text: string): number[] {
 
 // LANDFIRE FBFM40 (Scott & Burgan 40 fuel models) → human-readable description
 function _describeFBFM40(code: number): { description: string; fire_behavior: string } {
-  if (code >= 101 && code <= 109) return { description: `Grass (GR${code - 100})`,           fire_behavior: "Fast spread, moderate flame height" };
-  if (code >= 121 && code <= 129) return { description: `Grass-Shrub (GS${code - 120})`,      fire_behavior: "High spread potential, spotting risk" };
-  if (code >= 141 && code <= 149) return { description: `Shrub (SH${code - 140})`,            fire_behavior: "High intensity, strong spotting" };
-  if (code >= 161 && code <= 169) return { description: `Timber Understory (TU${code - 160})`,fire_behavior: "Moderate spread, ladder fuel risk" };
-  if (code >= 181 && code <= 189) return { description: `Timber Litter (TL${code - 180})`,    fire_behavior: "Moderate spread, deep fire in litter" };
-  if (code >= 191 && code <= 199) return { description: `Slash-Blowdown (SB${code - 190})`,   fire_behavior: "High intensity if ignited" };
+  // Numeric codes per the primary source: Scott & Burgan (2005), "Standard Fire Behavior
+  // Fuel Models," USDA Forest Service GTR-RMRS-153, Table 3. Standard model numbers are:
+  //   NB 91-93, 98-99 · GR 101-109 · GS 121-124 · SH 141-149 · TU 161-165 · TL 181-189 · SB 201-204
+  //
+  // ⚠ SB (slash-blowdown) is 201-204, NOT 191-199. An earlier version of this function
+  // mapped 191-199 to SB, which was wrong twice over: real SB models (201-204) fell through
+  // to the generic "Fuel model N", and 191-199 — which sits inside the TL block (180-199)
+  // and is reserved there for TL custom models — was mislabelled as slash-blowdown.
+  // Corrected 2026-07-22 after checking the mapping against GTR-RMRS-153 directly.
+  //
+  // Ranges below are the STANDARD model numbers only. Each fuel type also owns a wider
+  // block (e.g. TU is 160-179) reserved for custom/extension models whose sub-numbering
+  // is not defined by the standard, so those deliberately fall through to "Fuel model N"
+  // rather than being given a label this code cannot justify.
   if (code >= 91  && code <= 99)  return { description: "Non-burnable",                       fire_behavior: "Minimal fire risk" };
+  if (code >= 101 && code <= 109) return { description: `Grass (GR${code - 100})`,            fire_behavior: "Fast spread, moderate flame height" };
+  if (code >= 121 && code <= 124) return { description: `Grass-Shrub (GS${code - 120})`,      fire_behavior: "High spread potential, spotting risk" };
+  if (code >= 141 && code <= 149) return { description: `Shrub (SH${code - 140})`,            fire_behavior: "High intensity, strong spotting" };
+  if (code >= 161 && code <= 165) return { description: `Timber Understory (TU${code - 160})`,fire_behavior: "Moderate spread, ladder fuel risk" };
+  if (code >= 181 && code <= 189) return { description: `Timber Litter (TL${code - 180})`,    fire_behavior: "Moderate spread, deep fire in litter" };
+  if (code >= 201 && code <= 204) return { description: `Slash-Blowdown (SB${code - 200})`,   fire_behavior: "High intensity if ignited" };
   return { description: `Fuel model ${code}`, fire_behavior: "See LANDFIRE documentation" };
 }
 

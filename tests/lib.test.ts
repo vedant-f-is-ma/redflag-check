@@ -184,6 +184,54 @@ describe("classifyVerdict downwind tiers", () => {
   });
 });
 
+// FBFM40 fuel-code mapping, checked against the primary source:
+// Scott & Burgan (2005), USDA Forest Service GTR-RMRS-153, Table 3.
+// Standard model numbers: NB 91-93/98-99, GR 101-109, GS 121-124, SH 141-149,
+// TU 161-165, TL 181-189, SB 201-204.
+describe("FBFM40 fuel-code mapping vs Scott & Burgan GTR-RMRS-153", () => {
+  const fuelFor = async (code: number) => {
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      const body = url.includes("fbfm40")
+        ? `Results for FeatureType 'fbfm40':\nGRAY_INDEX = ${code}.0\n`
+        : "Results:\nGRAY_INDEX = 0.0\n";
+      return new Response(body, { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.8, -122.2);
+    return d!.fuel_type.description;
+  };
+
+  test("each fuel-type band maps to its correct code prefix", async () => {
+    expect(await fuelFor(91)).toBe("Non-burnable");
+    expect(await fuelFor(99)).toBe("Non-burnable");
+    expect(await fuelFor(101)).toBe("Grass (GR1)");
+    expect(await fuelFor(109)).toBe("Grass (GR9)");
+    expect(await fuelFor(121)).toBe("Grass-Shrub (GS1)");
+    expect(await fuelFor(124)).toBe("Grass-Shrub (GS4)");
+    expect(await fuelFor(141)).toBe("Shrub (SH1)");
+    expect(await fuelFor(149)).toBe("Shrub (SH9)");
+    expect(await fuelFor(161)).toBe("Timber Understory (TU1)");
+    expect(await fuelFor(165)).toBe("Timber Understory (TU5)");
+    expect(await fuelFor(181)).toBe("Timber Litter (TL1)");
+    expect(await fuelFor(189)).toBe("Timber Litter (TL9)");
+  });
+
+  // Regression: SB was previously mapped to 191-199, which meant real slash-blowdown
+  // models were unrecognised AND TL-block custom codes were mislabelled as SB.
+  test("slash-blowdown is 201-204, not 191-199", async () => {
+    expect(await fuelFor(201)).toBe("Slash-Blowdown (SB1)");
+    expect(await fuelFor(204)).toBe("Slash-Blowdown (SB4)");
+    // 191-199 lives in the TL block and is NOT slash-blowdown
+    expect(await fuelFor(195)).not.toContain("Slash-Blowdown");
+    expect(await fuelFor(195)).toBe("Fuel model 195");
+  });
+
+  test("codes outside the standard set fall through honestly", async () => {
+    expect(await fuelFor(250)).toBe("Fuel model 250");
+    expect(await fuelFor(170)).toBe("Fuel model 170"); // TU custom block, sub-numbering undefined
+  });
+});
+
 describe("buildActionChecklist", () => {
   test("in_zone category", () => {
     const c = buildActionChecklist(true, false);
