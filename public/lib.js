@@ -249,23 +249,42 @@ export function demoVerdict(state) {
       wind_vector: { ...wind, wind_from_compass: "SW", wind_from_deg: 225, wind_to_deg: 45, wind_to_compass: "NE", wind_speed_mph_peak: 14 },
       downwind: { triggered: false, alignment_angle_deg: 180, threat_level: "none", tier: null, explanation: "" },
     },
+    // Fail-safe state: what users see when NWS is unreachable. No polygon, no wind —
+    // nothing can be drawn — the whole point is that the banner assumes warning
+    // conditions instead of showing a false "safe".
+    data_unavailable: {
+      state: "data_unavailable",
+      headline: "Live warning data is unreachable right now.",
+      short_explanation: "Assume warning conditions persist. This tool could not confirm your address is clear — check weather.gov or your county's emergency alerts before treating tonight as safe.",
+      nearest_polygon: null,
+      wind_vector: null,
+      downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", tier: null, explanation: "" },
+      data_status: { degraded: true, failed_sources: ["point_alerts"], note: "Live data was unreachable for: warnings at your location. Conditions may be worse than shown — verify at weather.gov." },
+    },
   };
   const verdict = states[state] || states.safe_tonight;
   const effState = verdict.state; // demo tier keys (downwind_red/orange/yellow) map to the real "downwind_threat" state
   return {
     location: { lat: 37.7, lng: -122.0, matched_address: "DEMO ADDRESS, FREMONT, CA", zip: "94538" },
     verdict,
+    // Mirror of the top-level data_status the API sends, so the demo exercises the
+    // same degraded-freshness rendering path as a real outage.
+    data_status: verdict.data_status || { degraded: false, failed_sources: [], note: null },
     action_checklist: {
-      category: effState === "in_zone" ? "in_zone" : (effState === "downwind_threat" || effState === "adjacent") ? "adjacent" : "out_of_zone",
+      category: effState === "in_zone" ? "in_zone" : (effState === "downwind_threat" || effState === "adjacent") ? "adjacent" : effState === "data_unavailable" ? "data_unavailable" : "out_of_zone",
       do_now: effState === "in_zone"
         ? ["Charge your phone. Keep car keys near the door.", "Park your car facing OUTWARD on the driveway.", "Pack a go-bag: meds, IDs, phone charger, water, sturdy shoes.", "Set a buddy to text-check you at 11 PM tonight."]
         : effState === "downwind_threat"
         ? ["Treat tonight as if you were inside the warning polygon.", "Keep your phone charged and bring it to bed with sound on.", "Park car facing outward. Pack a go-bag.", "Set a buddy to text-check you tonight."]
         : effState === "adjacent"
         ? ["Keep your phone charged and bring it to bed with sound on.", "Sign up for your county's emergency alerts if you haven't.", "Know your Genasys zone in case conditions change."]
+        : effState === "data_unavailable"
+        ? ["Live warning data is unreachable. Treat tonight as a possible fire-weather night until you can confirm otherwise.", "Check weather.gov or local news for Red Flag Warnings in your area.", "Keep your phone charged and bring it to bed with sound on."]
         : ["Tonight is not a wind-driven fire-weather event for your address.", "Fire-season preparedness still matters.", "Text a neighbor in the hills. They may be in the active polygon."],
       do_not: effState === "in_zone" || effState === "downwind_threat"
         ? ["Do NOT mow dry grass.", "Do NOT use BBQs or open flames outdoors.", "Do NOT park on dry grass."]
+        : effState === "data_unavailable"
+        ? ["Do NOT assume you are clear because this tool could not retrieve warning data."]
         : ["Avoid sparking activities outdoors during fire season."],
       if_evacuation_called: [],
     },
@@ -275,7 +294,9 @@ export function demoVerdict(state) {
       watch_duty: "https://www.watchduty.org",
       airnow_fire_map: "https://fire.airnow.gov/",
     },
-    fire_context: {
+    // In the data_unavailable demo the fire-context upstream is "down" too — a demo
+    // claiming live ELMFIRE data during a simulated outage would undercut the point.
+    fire_context: effState === "data_unavailable" ? null : {
       fuel_type: {
         fbfm40_code: 142,
         description: "Shrub (SH2)",

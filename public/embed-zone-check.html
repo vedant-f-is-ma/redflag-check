@@ -61,6 +61,9 @@
   html[data-theme="light"] .verdict.adjacent { color: #8a3500; }
   .verdict.out-of-zone { background: rgba(74, 222, 128, 0.12); border: 1px solid var(--safe); color: #bef0c5; }
   html[data-theme="light"] .verdict.out-of-zone { color: #166534; }
+  /* Fail-safe: live data unreachable — amber, never green. */
+  .verdict.data-unavailable { background: rgba(255, 170, 60, 0.14); border: 1px solid #e8a13d; color: #ffe3b3; }
+  html[data-theme="light"] .verdict.data-unavailable { color: #6a4500; }
   .small { font-size: .75rem; color: var(--text-dim); margin: .5rem 0 0; }
   .small a { color: var(--accent); }
   .stats { display: flex; gap: .5rem; }
@@ -101,8 +104,13 @@ document.getElementById("b").addEventListener("click", async () => {
     }
     const d = await res.json();
     const cat = d.action_checklist.category;
-    const cls = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : "out-of-zone";
-    const title = cat === "in_zone" ? "⚠️ Yes, warning covers your address" : cat === "adjacent" ? "🚩 Adjacent to the warning zone" : "Outside the active warning polygon";
+    // data_unavailable (the fail-safe when NWS is unreachable) must render amber with
+    // "assume warning conditions" — an unknown category must also never style green.
+    const cls = cat === "in_zone" ? "in-zone" : cat === "adjacent" ? "adjacent" : cat === "out_of_zone" ? "out-of-zone" : "data-unavailable";
+    const title = cat === "in_zone" ? "⚠️ Yes, warning covers your address"
+      : cat === "adjacent" ? "🚩 Adjacent to the warning zone"
+      : cat === "out_of_zone" ? "Outside the active warning polygon"
+      : "⚠️ Live warning data unreachable — assume warning conditions and check weather.gov";
     let detail = "";
     if (d.alerts && d.alerts.length) {
       const a = d.alerts[0];

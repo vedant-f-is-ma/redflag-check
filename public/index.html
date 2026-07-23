@@ -341,6 +341,13 @@
     border: 1px solid var(--safe);
     color: #c0f0c8;
   }
+  /* Fail-safe state: live data unreachable, assume warning conditions. Amber, never
+     green — this banner exists so an outage can't be mistaken for an all-clear. */
+  .verdict.data-unavailable {
+    background: rgba(255, 170, 60, 0.12);
+    border: 1px solid #e8a13d;
+    color: #ffe3b3;
+  }
   /* Light-mode overrides for verdict banners (the dark-mode colors above are too light against a light bg) */
   html[data-theme="light"] .verdict.in-zone {
     background: rgba(197, 35, 42, 0.10);
@@ -359,6 +366,10 @@
   html[data-theme="light"] .verdict.out-of-zone {
     background: rgba(30, 156, 74, 0.08);
     color: #155a30;
+  }
+  html[data-theme="light"] .verdict.data-unavailable {
+    background: rgba(190, 120, 20, 0.10);
+    color: #6a4500;
   }
   /* Fire-season banner needs darker text in light mode */
   html[data-theme="light"] .fire-season-banner {
@@ -457,6 +468,12 @@
     background: var(--bg-card);
     border-color: var(--safe);
   }
+  /* Fail-safe state: amber, deliberately closer to the warning palette than the safe
+     one — "we don't know" must never look like "you're clear". */
+  .situation-card.state-data-unavailable {
+    background: rgba(255, 170, 60, 0.12);
+    border-color: #e8a13d;
+  }
   html[data-theme="light"] .situation-card.state-in-zone {
     background: rgba(197, 35, 42, 0.12);
   }
@@ -465,6 +482,9 @@
   }
   html[data-theme="light"] .situation-card.state-adjacent {
     background: rgba(217, 154, 30, 0.13);
+  }
+  html[data-theme="light"] .situation-card.state-data-unavailable {
+    background: rgba(190, 120, 20, 0.10);
   }
 
   /* Downwind tiers (red/orange/yellow by distance), per Ian Moore/SIG feedback 2026-07-13.
@@ -502,9 +522,11 @@
   .situation-card.state-downwind-threat .verdict-title { color: #ffdcc0; }
   .situation-card.state-adjacent .verdict-title { color: #ffe8a0; }
   .situation-card.state-safe-tonight .verdict-title { color: var(--text); }
+  .situation-card.state-data-unavailable .verdict-title { color: #ffdf9e; }
   html[data-theme="light"] .situation-card.state-in-zone .verdict-title { color: #8a1a1a; }
   html[data-theme="light"] .situation-card.state-downwind-threat .verdict-title { color: #8a3500; }
   html[data-theme="light"] .situation-card.state-adjacent .verdict-title { color: #6a4500; }
+  html[data-theme="light"] .situation-card.state-data-unavailable .verdict-title { color: #6a4500; }
   .situation-card.state-downwind-threat.tier-red .verdict-title { color: #ffd5d5; }
   .situation-card.state-downwind-threat.tier-orange .verdict-title { color: #ffdcc0; }
   .situation-card.state-downwind-threat.tier-yellow .verdict-title { color: #ffe8a0; }
@@ -601,6 +623,23 @@
   html[data-theme="light"] .downwind-callout {
     background: rgba(197, 35, 42, 0.10);
     color: #8a1a1a;
+  }
+  /* Shown on any verdict computed while a live source was unreachable: the verdict
+     stands on the data that produced it, but the gap must be visible. */
+  .degraded-callout {
+    margin: .75rem 0 0;
+    padding: .6rem .85rem;
+    background: rgba(255, 170, 60, 0.16);
+    border-left: 3px solid #e8a13d;
+    border-radius: 6px;
+    font-size: .9rem;
+    font-weight: 600;
+    line-height: 1.4;
+    color: #ffe3b3;
+  }
+  html[data-theme="light"] .degraded-callout {
+    background: rgba(190, 120, 20, 0.10);
+    color: #6a4500;
   }
   .verdict h2 { margin: 0 0 .35rem; font-size: 1.15rem; line-height: 1.3; }
   .verdict p { margin: 0; font-size: .92rem; font-weight: 400; line-height: 1.4; }
@@ -725,6 +764,10 @@
   .check-btn-2:hover { background: var(--bg-card); }
   .hero-meta { font-size: .76rem; color: var(--text-dim); margin: .9rem 0 0; line-height: 1.5; }
   .fresh-line { font-size: .77rem; color: var(--text-dim); margin: -.2rem 0 .7rem; display: flex; align-items: center; gap: .35rem; }
+  /* Degraded/stale data: the freshness line switches from the green "live" signal to an
+     amber caveat so missing or cached data is visible, not silently presented as live. */
+  .fresh-line.fresh-degraded { color: #e8a13d; font-weight: 700; }
+  html[data-theme="light"] .fresh-line.fresh-degraded { color: #9a6200; }
   .fire-note { margin: 1.5rem 0 0; border: 1px solid var(--border); border-radius: 12px; padding: 0 .9rem; background: var(--bg-card); }
   .fire-note summary { cursor: pointer; font-size: .85rem; color: var(--text-dim); padding: .7rem 0; font-weight: 600; }
   .fire-note p { font-size: .82rem; color: var(--text-dim); line-height: 1.6; margin: 0 0 .7rem; }
@@ -1506,8 +1549,12 @@ function geomapBlock(verdict, location, fullMapLink, place) {
   const link = fullMapLink || "https://www.watchduty.org";
   // With a warning, show the affected area; without one, show "here's your area" so a safe
   // result still renders a map of the user's location instead of looking like a failed load.
+  // When live data is unreachable, "no active warning area to show" would be a small
+  // false reassurance — say what's actually true instead.
   const caption = ringPresent
     ? `Active warning area near ${place || "your address"}.`
+    : (verdict && verdict.state === "data_unavailable")
+    ? `Your location — live warning data unavailable, warning areas can't be drawn.`
     : `Your location — no active warning area to show.`;
   return `
       <div class="geomap-wrapper">
@@ -1523,7 +1570,9 @@ function geomapBlock(verdict, location, fullMapLink, place) {
 
 function renderZoneResult(d) {
   const v = d.verdict || {};
-  const state = v.state || "safe_tonight";
+  // Fail-safe default: a malformed/verdict-less payload renders as "data unavailable",
+  // never as the safe state.
+  const state = v.state || "data_unavailable";
   const stateClass = state.replace(/_/g, "-");      // e.g. "downwind-threat"
   const tier = v.downwind && v.downwind.tier;       // "red" | "orange" | "yellow" | null, sub-tier within downwind_threat
   const tierClass = tier ? ` tier-${tier}` : "";
@@ -1545,10 +1594,41 @@ function renderZoneResult(d) {
     ? `<p class="matched-address"><span class="matched-label">Checked for</span>${esc(d.location.matched_address)}</p>`
     : "";
 
-  // Freshness, a timestamp is the strongest trust signal in an emergency.
+  // Freshness, a timestamp is the strongest trust signal in an emergency — which is
+  // exactly why it must never show green when the data behind it wasn't live. Three
+  // states: degraded (a source failed → amber, with the last KNOWN-good check time),
+  // stale (CDN served a cached response → amber), live (green, and remember this
+  // moment as the last successful check).
+  const ds = d.data_status || v.data_status || null;
+  const degraded = !!(ds && ds.degraded);
   const checkedAt = d.generated_at ? new Date(d.generated_at) : null;
-  const freshLine = (checkedAt && !isNaN(checkedAt))
-    ? `<p class="fresh-line">🟢 Live NWS data · checked ${checkedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>`
+  const fmtT = (t) => t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  let freshLine = "";
+  if (degraded) {
+    let lastOkLine = "";
+    try {
+      const lastOk = new Date(localStorage.getItem("rfc-last-ok-check"));
+      // Only surface a recent success; yesterday's "all clear" is not reassurance for tonight.
+      if (!isNaN(lastOk) && Date.now() - lastOk.getTime() < 12 * 3600 * 1000) {
+        lastOkLine = ` · last successful check ${fmtT(lastOk)}`;
+      }
+    } catch (e) {}
+    freshLine = `<p class="fresh-line fresh-degraded">🟠 Live warning data unreachable · attempted ${checkedAt && !isNaN(checkedAt) ? fmtT(checkedAt) : "just now"}${lastOkLine}</p>`;
+  } else if (checkedAt && !isNaN(checkedAt)) {
+    const ageMin = (Date.now() - checkedAt.getTime()) / 60000;
+    if (ageMin > 10) {
+      freshLine = `<p class="fresh-line fresh-degraded">🟠 Cached data from ${fmtT(checkedAt)} — conditions may have changed. Check again for live status.</p>`;
+    } else {
+      freshLine = `<p class="fresh-line">🟢 Live NWS data · checked ${fmtT(checkedAt)}</p>`;
+      try { localStorage.setItem("rfc-last-ok-check", checkedAt.toISOString()); } catch (e) {}
+    }
+  }
+
+  // On a degraded WARNING verdict (in_zone / downwind / adjacent computed while some
+  // source was down) the verdict stands but the gap must be visible. data_unavailable
+  // already says this in its headline, so skip the duplicate there.
+  const degradedCallout = (degraded && state !== "data_unavailable" && ds.note)
+    ? `<p class="degraded-callout">⚠️ ${esc(ds.note)}</p>`
     : "";
 
   // Downwind callout, only when wind is pushing fire conditions toward the user.
@@ -1587,7 +1667,7 @@ function renderZoneResult(d) {
   const moreDo = doNow.slice(1).map((s, i) => `<li class="do step-item"><span class="step-num" aria-hidden="true">${i + 1}</span>${esc(s)}</li>`).join("");
   const dontItems = doNot.map(s => `<li class="dont">${esc(s)}</li>`).join("");
   const moreChecklist = (moreDo || dontItems) ? `
-    <details class="checklist-details"${urgent ? " open" : ""}>
+    <details class="checklist-details"${urgent || state === "data_unavailable" ? " open" : ""}>
       <summary>What else to do${dontItems ? " · what not to do" : ""}</summary>
       ${moreDo ? `<p class="cl-head">Also do tonight</p><ul>${moreDo}</ul>` : ""}
       ${dontItems ? `<p class="cl-head">What NOT to do</p><ul>${dontItems}</ul>` : ""}
@@ -1617,8 +1697,12 @@ function renderZoneResult(d) {
     const fuelLine = fuel && fuel.fbfm40_code !== null
       ? `${esc(fuel.description || `Code ${fuel.fbfm40_code}`)}${fuel.fire_behavior ? ` · ${esc(fuel.fire_behavior.toLowerCase())}` : ""}`
       : "No fuel data for this location";
-    const riskClass = risk.is_active ? "fc-active" : "fc-safe";
-    const riskLine = risk.is_active
+    // risk is null when the ELMFIRE request failed — say so instead of the reassuring
+    // "no modeled fire spread" (which is reserved for a successful zero result).
+    const riskClass = risk ? (risk.is_active ? "fc-active" : "fc-safe") : "";
+    const riskLine = !risk
+      ? "ELMFIRE model unreachable right now — no spread data available"
+      : risk.is_active
       ? `ELMFIRE model shows fire spread risk · ${risk.max_impacted_structures} structures in potential impact zone`
       : "ELMFIRE model: no modeled fire spread at this location today";
     fireContextHtml = `
@@ -1662,6 +1746,7 @@ function renderZoneResult(d) {
       <h2 class="verdict-title">${esc(headline)}</h2>
       ${matchedAddr}
       ${freshLine}
+      ${degradedCallout}
       ${downwindCallout}
       ${compass}
       ${compassLegend}
@@ -1843,11 +1928,18 @@ function renderSchoolResult(d) {
   // A school is a named lat/lng, show the same geo-map + wind/fire overlay as an address.
   const schoolMap = geomapBlock(d.verdict, d.location, null, esc(s.name));
 
+  // Surface upstream-data gaps to the administrator making the call.
+  const vds = d.data_status || (d.verdict && d.verdict.data_status) || null;
+  const degradedNote = vds && vds.degraded
+    ? `<p class="degraded-callout">⚠️ ${esc(vds.note || "Some live NWS data was unreachable. Verify at weather.gov before relying on this recommendation.")}</p>`
+    : "";
+
   return `
     <div class="verdict ${lvlClass}">
       <h2>${lvlLabel}</h2>
       <p>${esc(d.decision_recommendation.rationale)}</p>
     </div>
+    ${degradedNote}
     <div class="card">
       <h3 style="margin:0 0 .3rem">${esc(s.name)}</h3>
       <p class="small">${esc(s.address)}, ${esc(s.city)} · ${esc(s.district)}</p>
@@ -1903,8 +1995,14 @@ $("#buddy-btn").addEventListener("click", async () => {
 });
 
 function renderBuddyResult(d) {
-  const zoneNote = d.friend_zone_status
-    ? (d.friend_zone_status.in_red_flag_zone
+  const fz = d.friend_zone_status;
+  // Order matters: check data_unavailable BEFORE in_red_flag_zone — a failed NWS
+  // fetch reports in_red_flag_zone: null, which must not fall into the reassuring
+  // "outside the affected area" branch.
+  const zoneNote = fz
+    ? (fz.data_unavailable
+        ? `<div class="verdict data-unavailable"><h2>⚠️ Couldn't verify your friend's zone right now.</h2><p>Live NWS warning data is unreachable. Assume warning conditions at their address and send the check-in anyway.</p></div>`
+        : fz.in_red_flag_zone
         ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
         : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`)
     : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
@@ -1956,14 +2054,15 @@ function renderBuddyResult(d) {
   });
 })();
 
-// ---------- Demo mode (?demo=in_zone|downwind_threat|downwind_red|downwind_orange|downwind_yellow|adjacent|safe_tonight) ----------
+// ---------- Demo mode (?demo=in_zone|downwind_threat|downwind_red|downwind_orange|downwind_yellow|adjacent|safe_tonight|data_unavailable) ----------
 // Lets reviewers (fire-safety council folks) preview each verdict state, including the
-// three downwind tiers, without waiting for a real Red Flag Warning.
+// three downwind tiers and the fail-safe data_unavailable banner, without waiting for
+// a real Red Flag Warning (or a real NWS outage).
 (function setupDemoMode() {
   const params = new URLSearchParams(location.search);
   const demoState = params.get("demo");
   if (!demoState) return;
-  const valid = ["in_zone", "downwind_threat", "downwind_red", "downwind_orange", "downwind_yellow", "adjacent", "safe_tonight"];
+  const valid = ["in_zone", "downwind_threat", "downwind_red", "downwind_orange", "downwind_yellow", "adjacent", "safe_tonight", "data_unavailable"];
   if (!valid.includes(demoState)) return;
   const data = demoVerdict(demoState);
   const out = $("#zone-result");
@@ -1990,7 +2089,7 @@ function renderBuddyResult(d) {
   // Show a small "DEMO" badge so it's clear this isn't real data
   const banner = document.createElement("div");
   banner.style.cssText = "background:#2a2a2a;border:1px dashed #888;padding:.5rem .8rem;border-radius:8px;margin-bottom:1rem;font-size:.85rem;color:#aaa;text-align:center;";
-  banner.innerHTML = `DEMO PREVIEW: <strong style="color:#fff">${demoState.replace(/_/g, " ")}</strong> state. <a href="/" style="color:var(--accent)">Try a real address →</a> · Switch state: <a href="?demo=in_zone" style="color:#ffaaaa">in zone</a> · <a href="?demo=downwind_threat" style="color:#ffdcc0">downwind</a> · <a href="?demo=downwind_red" style="color:#ffaaaa">downwind red</a> · <a href="?demo=downwind_orange" style="color:#ffdcc0">downwind orange</a> · <a href="?demo=downwind_yellow" style="color:#ffe8a0">downwind yellow</a> · <a href="?demo=adjacent" style="color:#ffe8a0">adjacent</a> · <a href="?demo=safe_tonight" style="color:#c0f0c8">safe</a>`;
+  banner.innerHTML = `DEMO PREVIEW: <strong style="color:#fff">${demoState.replace(/_/g, " ")}</strong> state. <a href="/" style="color:var(--accent)">Try a real address →</a> · Switch state: <a href="?demo=in_zone" style="color:#ffaaaa">in zone</a> · <a href="?demo=downwind_threat" style="color:#ffdcc0">downwind</a> · <a href="?demo=downwind_red" style="color:#ffaaaa">downwind red</a> · <a href="?demo=downwind_orange" style="color:#ffdcc0">downwind orange</a> · <a href="?demo=downwind_yellow" style="color:#ffe8a0">downwind yellow</a> · <a href="?demo=adjacent" style="color:#ffe8a0">adjacent</a> · <a href="?demo=safe_tonight" style="color:#c0f0c8">safe</a> · <a href="?demo=data_unavailable" style="color:#ffe3b3">data unavailable</a>`;
   out.parentElement.insertBefore(banner, out);
 })();
 </script>

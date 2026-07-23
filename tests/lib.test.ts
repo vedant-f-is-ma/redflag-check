@@ -184,6 +184,88 @@ describe("classifyVerdict downwind tiers", () => {
   });
 });
 
+// Fail-safe availability gating (CLAUDE.md invariant: never falsely reassure).
+// A "safe_tonight" verdict asserts a negative and must degrade to data_unavailable
+// when the source that could have contradicted it was unreachable. Warning states
+// stand on the data that produced them but carry a degraded data_status.
+describe("classifyVerdict fail-safe (data availability)", () => {
+  const uLat = 37.7, uLng = -122.0;
+  const ALL_OK = { point_alerts_ok: true, polygons_ok: true, forecast_ok: true };
+  // Small near-point polygon `distMi` miles NE of the user (same helper shape as the
+  // downwind-tier tests) so distance boundaries can be pinned precisely.
+  function polygonAtDistance(distMi: number): RedFlagPolygon {
+    const DEG = 69.0;
+    const rad = (45 * Math.PI) / 180;
+    const cLat = uLat + (distMi / DEG) * Math.cos(rad);
+    const cLng = uLng + (distMi / (DEG * Math.cos((uLat * Math.PI) / 180))) * Math.sin(rad);
+    return poly(`d${distMi}`, squareRing(cLat, cLng, 0.005));
+  }
+
+  test("all sources ok -> data_status is clean and safe_tonight is allowed", () => {
+    const v = classifyVerdict(uLat, uLng, [], fc("N", 5), false, ALL_OK);
+    expect(v.state).toBe("safe_tonight");
+    expect(v.data_status.degraded).toBe(false);
+    expect(v.data_status.failed_sources).toEqual([]);
+    expect(v.data_status.note).toBeNull();
+  });
+  test("point-alert failure: would-be safe_tonight becomes data_unavailable, never safe", () => {
+    const v = classifyVerdict(uLat, uLng, [], fc("N", 5), false, { ...ALL_OK, point_alerts_ok: false });
+    expect(v.state).toBe("data_unavailable");
+    expect(v.state).not.toBe("safe_tonight");
+    expect(v.headline).toContain("unreachable");
+    expect(v.data_status.degraded).toBe(true);
+    expect(v.data_status.failed_sources).toContain("point_alerts");
+  });
+  test("polygon-set failure (or skipped fetch): would-be safe_tonight becomes data_unavailable", () => {
+    const v = classifyVerdict(uLat, uLng, [], fc("N", 5), false, { ...ALL_OK, polygons_ok: false });
+    expect(v.state).toBe("data_unavailable");
+    expect(v.data_status.failed_sources).toEqual(["regional_polygons"]);
+  });
+  test("forecast failure with a warning INSIDE the 25mi downwind cone: cannot rule out downwind -> data_unavailable", () => {
+    // 24mi: just inside DOWNWIND_MAX_DISTANCE_MI. Wind unknown, threat unprovable either way.
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(24)], null, false, { ...ALL_OK, forecast_ok: false });
+    expect(v.state).toBe("data_unavailable");
+    expect(v.short_explanation).toContain("cannot be ruled out");
+  });
+  test("forecast failure with the nearest warning BEYOND the 25mi cone: safe_tonight stands, flagged degraded", () => {
+    // 30mi: outside the cone — wind alignment can't create a 1-night threat, so the
+    // missing forecast could not have changed the verdict.
+    const v = classifyVerdict(uLat, uLng, [polygonAtDistance(30)], null, false, { ...ALL_OK, forecast_ok: false });
+    expect(v.state).toBe("safe_tonight");
+    expect(v.data_status.degraded).toBe(true);
+    expect(v.data_status.failed_sources).toEqual(["forecast"]);
+  });
+  test("forecast failure with NO warnings anywhere (verified): safe_tonight stands, flagged degraded", () => {
+    const v = classifyVerdict(uLat, uLng, [], null, false, { ...ALL_OK, forecast_ok: false });
+    expect(v.state).toBe("safe_tonight");
+    expect(v.data_status.degraded).toBe(true);
+  });
+  test("warning states stand on failed sources — degrading them would LOSE caution", () => {
+    // In zone by geometry while the point query is down.
+    const inZone = classifyVerdict(37.8, -122.0, [poly("a", squareRing(37.8, -122.0, 0.05))], fc("NE", 30), false, { ...ALL_OK, point_alerts_ok: false });
+    expect(inZone.state).toBe("in_zone");
+    expect(inZone.data_status.degraded).toBe(true);
+    // Adjacent (3mi, wind unknown) while the forecast is down.
+    const adj = classifyVerdict(uLat, uLng, [polygonAtDistance(3)], null, false, { ...ALL_OK, forecast_ok: false });
+    expect(adj.state).toBe("adjacent");
+    expect(adj.data_status.degraded).toBe(true);
+    // Downwind while the point query is down.
+    const dw = classifyVerdict(uLat, uLng, [polygonAtDistance(10)], fc("NE", 35), false, { ...ALL_OK, point_alerts_ok: false });
+    expect(dw.state).toBe("downwind_threat");
+    expect(dw.data_status.degraded).toBe(true);
+  });
+  test("forceInZone (authoritative point query) wins over every availability failure", () => {
+    const v = classifyVerdict(uLat, uLng, [], null, true, { point_alerts_ok: true, polygons_ok: false, forecast_ok: false });
+    expect(v.state).toBe("in_zone");
+  });
+  test("everything down at once -> data_unavailable with all sources listed", () => {
+    const v = classifyVerdict(uLat, uLng, [], null, false, { point_alerts_ok: false, polygons_ok: false, forecast_ok: false });
+    expect(v.state).toBe("data_unavailable");
+    expect(v.data_status.failed_sources).toEqual(["point_alerts", "regional_polygons", "forecast"]);
+    expect(v.data_status.note).toContain("weather.gov");
+  });
+});
+
 // FBFM40 fuel-code mapping, checked against the primary source:
 // Scott & Burgan (2005), USDA Forest Service GTR-RMRS-153, Table 3.
 // Standard model numbers: NB 91-93/98-99, GR 101-109, GS 121-124, SH 141-149,
@@ -295,6 +377,13 @@ describe("response + url helpers", () => {
     expect(r.status).toBe(422);
     expect(await r.json()).toEqual({ error: "bad", status: 422 });
   });
+  test("jsonResponse caches by default; no-store override and errorResponse skip the CDN", () => {
+    expect(jsonResponse({}).headers.get("Cache-Control")).toContain("s-maxage");
+    // Degraded verdicts pass no-store so the CDN can't keep serving a failure
+    // verdict for minutes after the upstream recovers.
+    expect(jsonResponse({}, 200, "no-store").headers.get("Cache-Control")).toBe("no-store");
+    expect(errorResponse("bad", 500).headers.get("Cache-Control")).toBe("no-store");
+  });
   test("USER_AGENT is a non-empty string", () => {
     expect(typeof USER_AGENT).toBe("string");
     expect(USER_AGENT.length).toBeGreaterThan(0);
@@ -355,6 +444,21 @@ describe("fetchPyrecastData", () => {
   test("returns null when both fetches fail", async () => {
     globalThis.fetch = (async () => new Response("err", { status: 500 })) as any;
     expect(await fetchPyrecastData(37.85, -122.2)).toBeNull();
+  });
+
+  test("failed risk request yields risk_forecast null, NOT 'no modeled fire spread'", async () => {
+    // Fuel succeeds, ELMFIRE risk 500s. The old shape reported max_impacted_structures: 0
+    // / is_active: false here, which the UI rendered as a reassuring "no modeled fire
+    // spread at this location today" — a silent failure masquerading as an all-clear.
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (url.includes("fbfm40")) return new Response("GRAY_INDEX = 141.0\n", { status: 200 });
+      return new Response("err", { status: 500 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d).not.toBeNull();
+    expect(d!.fuel_type.description).toBe("Shrub (SH1)");
+    expect(d!.risk_forecast).toBeNull();
   });
 
   test("handles network errors gracefully", async () => {
@@ -429,16 +533,37 @@ describe("fetch-backed helpers", () => {
   });
   test("fetchAlertsAtPoint maps features (incl. UGC zones)", async () => {
     mockFetch(() => ({ features: [{ id: "u1", properties: { event: "Red Flag Warning", headline: "h", areaDesc: "A; B", geocode: { UGC: ["AZZ112", "AZZ113"] } } }] }));
-    const a = await fetchAlertsAtPoint(37.8, -122.2);
-    expect(a.length).toBe(1);
-    expect(a[0].event).toBe("Red Flag Warning");
-    expect(a[0].areas).toEqual(["A", "B"]);
-    expect(a[0].ugc).toEqual(["AZZ112", "AZZ113"]);
+    const r = await fetchAlertsAtPoint(37.8, -122.2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.alerts.length).toBe(1);
+    expect(r.alerts[0].event).toBe("Red Flag Warning");
+    expect(r.alerts[0].areas).toEqual(["A", "B"]);
+    expect(r.alerts[0].ugc).toEqual(["AZZ112", "AZZ113"]);
+    expect(typeof r.fetched_at).toBe("string");
     // Missing geocode block -> empty ugc, not a crash.
     mockFetch(() => ({ features: [{ id: "u2", properties: { event: "Red Flag Warning", areaDesc: "C" } }] }));
-    expect((await fetchAlertsAtPoint(37.8, -122.2))[0].ugc).toEqual([]);
-    mockFetch(() => "ERR");
-    expect(await fetchAlertsAtPoint(37.8, -122.2)).toEqual([]);
+    const r2 = await fetchAlertsAtPoint(37.8, -122.2);
+    expect(r2.ok && r2.alerts[0].ugc).toEqual([]);
+  });
+  // THE core fail-safe distinction: an upstream failure must never be mistakable for
+  // a valid "no active alerts" answer. This is the bug that let an NWS outage read
+  // as safe_tonight.
+  test("fetchAlertsAtPoint: HTTP error and network throw are ok:false, NOT an empty list", async () => {
+    mockFetch(() => "ERR"); // 500
+    const err = await fetchAlertsAtPoint(37.8, -122.2);
+    expect(err.ok).toBe(false);
+    expect(err.alerts).toBeNull();
+    globalThis.fetch = (async () => { throw new Error("timeout"); }) as any;
+    const thrown = await fetchAlertsAtPoint(37.8, -122.2);
+    expect(thrown.ok).toBe(false);
+    expect(thrown.alerts).toBeNull();
+    if (!thrown.ok) expect(thrown.error).toContain("timeout");
+    // A genuinely empty answer stays ok:true — the two must remain distinguishable.
+    mockFetch(() => ({ features: [] }));
+    const empty = await fetchAlertsAtPoint(37.8, -122.2);
+    expect(empty.ok).toBe(true);
+    expect(empty.ok && empty.alerts).toEqual([]);
   });
   test("fetchForecastSummary two-step", async () => {
     mockFetch((url) => {
@@ -448,12 +573,28 @@ describe("fetch-backed helpers", () => {
         { startTime: "t1", endTime: "t2", temperature: 68, windSpeed: "30 mph", windDirection: "NE", relativeHumidity: { value: 15 }, shortForecast: "Windy" },
       ] } };
     });
-    const f = await fetchForecastSummary(37.8, -122.2);
-    expect(f).not.toBeNull();
-    expect(f!.tonight.max_wind_mph).toBe(30);
-    expect(f!.next_24h.length).toBe(2);
+    const r = await fetchForecastSummary(37.8, -122.2);
+    expect(r.ok).toBe(true);
+    expect(r.forecast).not.toBeNull();
+    expect(r.forecast!.tonight.max_wind_mph).toBe(30);
+    expect(r.forecast!.next_24h.length).toBe(2);
+  });
+  test("fetchForecastSummary: 5xx / throw are failures; a /points 404 is a valid absence", async () => {
     mockFetch(() => "ERR");
-    expect(await fetchForecastSummary(37.8, -122.2)).toBeNull();
+    const err = await fetchForecastSummary(37.8, -122.2);
+    expect(err.ok).toBe(false);
+    expect(err.forecast).toBeNull();
+    globalThis.fetch = (async () => { throw new Error("net"); }) as any;
+    expect((await fetchForecastSummary(37.8, -122.2)).ok).toBe(false);
+    // 404 from /points = NWS verifiably has no gridpoint here (e.g. outside coverage):
+    // that is a real answer, not an outage, so it must NOT trip the fail-safe.
+    globalThis.fetch = (async () => new Response("not found", { status: 404 })) as any;
+    const absent = await fetchForecastSummary(37.8, -122.2);
+    expect(absent.ok).toBe(true);
+    expect(absent.forecast).toBeNull();
+    // Second-step (hourly) failure is still a failure.
+    mockFetch((url) => (url.includes("/points/") ? { properties: { forecastHourly: "https://api.weather.gov/hourly" } } : "ERR"));
+    expect((await fetchForecastSummary(37.8, -122.2)).ok).toBe(false);
   });
   test("fetchActiveRedFlagPolygons parses Polygon + MultiPolygon", async () => {
     mockFetch(() => ({ features: [
@@ -462,12 +603,31 @@ describe("fetch-backed helpers", () => {
       { id: "p3", properties: {}, geometry: null },
       { id: "p4", properties: {}, geometry: { type: "Point", coordinates: [0, 0] } },
     ] }));
-    const polys = await fetchActiveRedFlagPolygons("CA");
-    expect(polys.length).toBe(2);
-    expect(polys[0].rings[0].length).toBeGreaterThan(3);
-    expect(polys[0].source).toBe("polygon");
+    const r = await fetchActiveRedFlagPolygons("CA");
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.polygons.length).toBe(2);
+    expect(r.polygons[0].rings[0].length).toBeGreaterThan(3);
+    expect(r.polygons[0].source).toBe("polygon");
+    // p3 (no geometry, no UGC) and p4 (unsupported type) dropped -> the set is
+    // NOT complete: two warnings exist that this set cannot locate.
+    expect(r.complete).toBe(false);
+  });
+  test("fetchActiveRedFlagPolygons: upstream failure is ok:false, NOT an empty polygon set", async () => {
     mockFetch(() => "ERR");
-    expect(await fetchActiveRedFlagPolygons("CA")).toEqual([]);
+    const err = await fetchActiveRedFlagPolygons("CA");
+    expect(err.ok).toBe(false);
+    expect(err.polygons).toBeNull();
+    expect(err.complete).toBe(false);
+    globalThis.fetch = (async () => { throw new Error("net"); }) as any;
+    expect((await fetchActiveRedFlagPolygons("CA")).ok).toBe(false);
+    // Genuinely no warnings in the state: ok AND complete — the only shape that may
+    // ever back a "nothing nearby" claim.
+    mockFetch(() => ({ features: [] }));
+    const empty = await fetchActiveRedFlagPolygons("CA");
+    expect(empty.ok).toBe(true);
+    expect(empty.ok && empty.polygons).toEqual([]);
+    expect(empty.complete).toBe(true);
   });
   test("fetchActiveRedFlagPolygons resolves zone boundaries for zone-based alerts", async () => {
     const ring = squareRing(35.6, -117.7, 0.1);
@@ -479,11 +639,13 @@ describe("fetch-backed helpers", () => {
       if (url.includes("zones/fire/CAZ298")) return { geometry: { type: "Polygon", coordinates: [ring] } };
       return "ERR";
     });
-    const polys = await fetchActiveRedFlagPolygons("CA");
-    expect(polys.length).toBe(1);
-    expect(polys[0].source).toBe("zone");
-    expect(polys[0].areas).toEqual(["Indian Wells Valley"]);
-    expect(polys[0].rings.length).toBe(1);
+    const r = await fetchActiveRedFlagPolygons("CA");
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.polygons.length).toBe(1);
+    expect(r.polygons[0].source).toBe("zone");
+    expect(r.polygons[0].areas).toEqual(["Indian Wells Valley"]);
+    expect(r.polygons[0].rings.length).toBe(1);
+    expect(r.complete).toBe(false); // z2 could not be located
   });
   test("fetchActiveRedFlagPolygons handles MultiPolygon zone and failed zone fetch", async () => {
     const ring = squareRing(35.6, -117.7, 0.1);
@@ -496,10 +658,27 @@ describe("fetch-backed helpers", () => {
       if (url.includes("CAZ299")) return { geometry: null };
       return "ERR"; // CAZ999 fails
     });
-    const polys = await fetchActiveRedFlagPolygons("CA");
-    expect(polys.length).toBe(1);
-    expect(polys[0].source).toBe("zone");
-    expect(polys[0].rings.length).toBe(1); // only CAZ298 resolved
+    const r = await fetchActiveRedFlagPolygons("CA");
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.polygons.length).toBe(1);
+    expect(r.polygons[0].source).toBe("zone");
+    expect(r.polygons[0].rings.length).toBe(1); // only CAZ298 resolved
+    // z1 resolved only partially and z2 not at all — distances measured against this
+    // set could overstate how far the nearest warning is, so it is not complete.
+    expect(r.complete).toBe(false);
+  });
+  test("fetchActiveRedFlagPolygons: fully-resolved zone set IS complete", async () => {
+    const ring = squareRing(35.6, -117.7, 0.1);
+    mockFetch((url) => {
+      if (url.includes("alerts/active")) return { features: [
+        { id: "z1", properties: { event: "Red Flag Warning", areaDesc: "IWV", geocode: { UGC: ["CAZ298"] } }, geometry: null },
+      ]};
+      if (url.includes("zones/fire/CAZ298")) return { geometry: { type: "Polygon", coordinates: [ring] } };
+      return "ERR";
+    });
+    const r = await fetchActiveRedFlagPolygons("CA");
+    expect(r.ok).toBe(true);
+    expect(r.complete).toBe(true);
   });
   test("fetchActiveRedFlagPolygons accepts a multi-state array (comma-joined area)", async () => {
     let requestedUrl = "";
@@ -509,8 +688,9 @@ describe("fetch-backed helpers", () => {
         { id: "az", properties: { event: "Red Flag Warning", areaDesc: "AZ zone" }, geometry: { type: "Polygon", coordinates: [squareRing(35.0, -110.7, 0.1)] } },
       ]};
     });
-    const polys = await fetchActiveRedFlagPolygons(["AZ", "NM", "CO"]);
-    expect(polys.length).toBe(1);
+    const r = await fetchActiveRedFlagPolygons(["AZ", "NM", "CO"]);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.polygons.length).toBe(1);
     // NWS area= takes a comma-separated list; encodeURIComponent renders the comma as %2C.
     expect(requestedUrl).toContain("area=AZ%2CNM%2CCO");
   });

@@ -10,6 +10,32 @@ export const USER_AGENT = _contact
   : "redflag-check.info";
 
 // ---------------------------------------------------------------------------
+// Upstream failure handling — the fail-safe boundary.
+//
+// The verdict-critical fetchers below return a discriminated result instead of a
+// bare value, because an upstream failure is NOT the same thing as a valid empty
+// answer. `{ ok: false }` means "we don't know"; it must never be collapsed into
+// "no active alerts" — that collapse is exactly the bug that would let an NWS
+// outage render a false "safe tonight" (the one unacceptable failure mode, see
+// CLAUDE.md). Callers unwrap explicitly and pass what failed into classifyVerdict,
+// which rounds toward warning when the data that could contradict "safe" is missing.
+// ---------------------------------------------------------------------------
+
+// Cap on any single verdict-critical upstream request, so a hung NWS connection
+// degrades into an explicit data_unavailable verdict instead of an endless spinner.
+const UPSTREAM_TIMEOUT_MS = 10_000;
+function upstreamTimeoutSignal(): AbortSignal | undefined {
+  // AbortSignal.timeout exists on Vercel Edge and Bun; degrade to no timeout elsewhere.
+  try {
+    return typeof AbortSignal !== "undefined" && typeof (AbortSignal as any).timeout === "function"
+      ? AbortSignal.timeout(UPSTREAM_TIMEOUT_MS)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Geocoding — Census street-address geocoder with Geoapify fallback.
 // Census is fast and authoritative for US street addresses but can't resolve
 // city names, ZIP-only, or landmark queries. Geoapify handles those cases.
@@ -152,15 +178,29 @@ export interface NWSAlert {
   ugc: string[];
 }
 
-export async function fetchAlertsAtPoint(lat: number, lng: number): Promise<NWSAlert[]> {
+// Result of the authoritative point-alert query. `ok: false` (HTTP error, timeout,
+// network throw, unparseable body) is "we could not find out", NOT "no alerts" —
+// `alerts` is typed null there so a caller cannot filter/measure it without first
+// acknowledging the failure.
+export type AlertsResult =
+  | { ok: true; alerts: NWSAlert[]; fetched_at: string }
+  | { ok: false; alerts: null; error: string };
+
+export async function fetchAlertsAtPoint(lat: number, lng: number): Promise<AlertsResult> {
   const url = `https://api.weather.gov/alerts/active?point=${lat},${lng}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as any;
+  let data: any;
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
+      signal: upstreamTimeoutSignal(),
+    });
+    if (!res.ok) return { ok: false, alerts: null, error: `NWS alerts endpoint returned HTTP ${res.status}` };
+    data = (await res.json()) as any;
+  } catch (e) {
+    return { ok: false, alerts: null, error: `NWS alerts fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
   const features = data?.features || [];
-  return features.map((f: any) => {
+  const alerts: NWSAlert[] = features.map((f: any) => {
     const p = f.properties || {};
     return {
       id: f.id || p.id,
@@ -179,6 +219,7 @@ export async function fetchAlertsAtPoint(lat: number, lng: number): Promise<NWSA
       ugc: (p.geocode?.UGC ?? []) as string[],
     };
   });
+  return { ok: true, alerts, fetched_at: new Date().toISOString() };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,24 +252,43 @@ function parseWindSpeed(s: string): number {
   return Math.max(...nums.map(Number));
 }
 
-export async function fetchForecastSummary(lat: number, lng: number): Promise<ForecastSummary | null> {
-  // Step 1: get gridpoint
-  const pointsUrl = `https://api.weather.gov/points/${lat.toFixed(4)},${lng.toFixed(4)}`;
-  const pointsRes = await fetch(pointsUrl, {
-    headers: { "User-Agent": USER_AGENT },
-  });
-  if (!pointsRes.ok) return null;
-  const points = (await pointsRes.json()) as any;
-  const forecastHourlyUrl = points?.properties?.forecastHourly;
-  if (!forecastHourlyUrl) return null;
+// `ok: true, forecast: null` = NWS verifiably has no gridpoint forecast for this
+// location (a 404 from /points — e.g. outside NWS coverage). That is a valid absence.
+// `ok: false` = we tried and could not find out (5xx, timeout, network) — the verdict
+// layer must not rule out a wind-driven threat on the strength of it.
+export type ForecastResult =
+  | { ok: true; forecast: ForecastSummary | null; fetched_at: string }
+  | { ok: false; forecast: null; error: string };
 
-  // Step 2: fetch hourly forecast
-  const fcRes = await fetch(forecastHourlyUrl, {
-    headers: { "User-Agent": USER_AGENT },
-  });
-  if (!fcRes.ok) return null;
-  const fc = (await fcRes.json()) as any;
-  const periods: any[] = fc?.properties?.periods || [];
+export async function fetchForecastSummary(lat: number, lng: number): Promise<ForecastResult> {
+  let periods: any[];
+  try {
+    // Step 1: get gridpoint
+    const pointsUrl = `https://api.weather.gov/points/${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const pointsRes = await fetch(pointsUrl, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: upstreamTimeoutSignal(),
+    });
+    if (pointsRes.status === 404) {
+      // NWS answered: no gridpoint exists here. Valid absence, not a failure.
+      return { ok: true, forecast: null, fetched_at: new Date().toISOString() };
+    }
+    if (!pointsRes.ok) return { ok: false, forecast: null, error: `NWS points endpoint returned HTTP ${pointsRes.status}` };
+    const points = (await pointsRes.json()) as any;
+    const forecastHourlyUrl = points?.properties?.forecastHourly;
+    if (!forecastHourlyUrl) return { ok: false, forecast: null, error: "NWS points response carried no forecastHourly URL" };
+
+    // Step 2: fetch hourly forecast
+    const fcRes = await fetch(forecastHourlyUrl, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: upstreamTimeoutSignal(),
+    });
+    if (!fcRes.ok) return { ok: false, forecast: null, error: `NWS hourly forecast returned HTTP ${fcRes.status}` };
+    const fc = (await fcRes.json()) as any;
+    periods = fc?.properties?.periods || [];
+  } catch (e) {
+    return { ok: false, forecast: null, error: `NWS forecast fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
 
   const next24 = periods.slice(0, 24).map((p) => ({
     start_iso: p.startTime,
@@ -249,12 +309,16 @@ export async function fetchForecastSummary(lat: number, lng: number): Promise<Fo
   const summary = tonightWindow[0]?.short_forecast || "";
 
   return {
-    next_24h: next24,
-    tonight: {
-      max_wind_mph: maxWind,
-      min_humidity_pct: minHumidity,
-      summary,
+    ok: true,
+    forecast: {
+      next_24h: next24,
+      tonight: {
+        max_wind_mph: maxWind,
+        min_humidity_pct: minHumidity,
+        summary,
+      },
     },
+    fetched_at: new Date().toISOString(),
   };
 }
 
@@ -378,7 +442,7 @@ async function fetchZoneRing(ugcCode: string): Promise<number[][] | null> {
   const zoneType = ugcCode[2] === "C" ? "county" : "fire";
   const url = `https://api.weather.gov/zones/${zoneType}/${ugcCode}`;
   try {
-    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+    const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: upstreamTimeoutSignal() });
     if (!res.ok) return null;
     const data = (await res.json()) as any;
     const geom = data?.geometry;
@@ -410,11 +474,18 @@ interface RedFlagSource {
 }
 
 // Resolve one alert to a RedFlagPolygon. Inline polygon geometry is used directly;
-// otherwise each UGC zone boundary is resolved in parallel. Returns null if neither
-// inline geometry nor any resolvable zone produced a ring.
-async function buildRedFlagPolygon(src: RedFlagSource): Promise<RedFlagPolygon | null> {
+// otherwise each UGC zone boundary is resolved in parallel. `polygon` is null if
+// neither inline geometry nor any resolvable zone produced a ring. `complete` is
+// false whenever ANY part of this alert's geometry could not be resolved — a
+// distance measured against a partially-resolved warning can overstate how far away
+// it is, so callers on the "how close is the nearest warning" path must not treat a
+// partial set as authoritative.
+async function buildRedFlagPolygon(
+  src: RedFlagSource
+): Promise<{ polygon: RedFlagPolygon | null; complete: boolean }> {
   let rings: number[][][] = [];
   let source: "polygon" | "zone";
+  let complete = true;
 
   if (src.geometry) {
     if (src.geometry.type === "Polygon") {
@@ -422,34 +493,38 @@ async function buildRedFlagPolygon(src: RedFlagSource): Promise<RedFlagPolygon |
     } else if (src.geometry.type === "MultiPolygon") {
       rings = src.geometry.coordinates.map((poly: number[][][]) => poly[0]);
     } else {
-      return null;
+      return { polygon: null, complete: false };
     }
     source = "polygon";
   } else {
-    if (src.ugc.length === 0) return null;
+    if (src.ugc.length === 0) return { polygon: null, complete: false };
     const zoneRings = (await Promise.all(src.ugc.map(fetchZoneRing))).filter(
       (r): r is number[][] => r !== null
     );
-    if (zoneRings.length === 0) return null;
+    complete = zoneRings.length === src.ugc.length;
+    if (zoneRings.length === 0) return { polygon: null, complete: false };
     rings = zoneRings;
     source = "zone";
   }
 
-  if (rings.length === 0) return null;
+  if (rings.length === 0) return { polygon: null, complete: false };
   return {
-    id: src.id,
-    event: src.event,
-    headline: src.headline,
-    description: src.description,
-    instruction: src.instruction,
-    starts: src.starts,
-    ends: src.ends,
-    expires: src.expires,
-    severity: src.severity,
-    sender_name: src.sender_name,
-    areas: src.areas,
-    rings,
-    source,
+    polygon: {
+      id: src.id,
+      event: src.event,
+      headline: src.headline,
+      description: src.description,
+      instruction: src.instruction,
+      starts: src.starts,
+      ends: src.ends,
+      expires: src.expires,
+      severity: src.severity,
+      sender_name: src.sender_name,
+      areas: src.areas,
+      rings,
+      source,
+    },
+    complete,
   };
 }
 
@@ -458,15 +533,30 @@ async function buildRedFlagPolygon(src: RedFlagSource): Promise<RedFlagPolygon |
 // alerts endpoint takes a comma-separated list. Used for the OUT-of-zone path
 // (nearest / adjacency / downwind) where we need warnings near — but not
 // necessarily containing — the point.
-export async function fetchActiveRedFlagPolygons(area: string | string[] = "CA"): Promise<RedFlagPolygon[]> {
+// `ok: false` = the alerts query itself failed — the caller knows NOTHING about
+// nearby warnings and must not conclude "none nearby". `complete: false` (with
+// ok: true) = the alert list arrived but at least one warning's geometry did not
+// fully resolve, so distances measured against `polygons` may overstate how far
+// the nearest warning is. Either flag forbids a "safe: nothing nearby" conclusion.
+export type PolygonsResult =
+  | { ok: true; polygons: RedFlagPolygon[]; complete: boolean; fetched_at: string }
+  | { ok: false; polygons: null; complete: false; error: string };
+
+export async function fetchActiveRedFlagPolygons(area: string | string[] = "CA"): Promise<PolygonsResult> {
   const areaParam = Array.isArray(area) ? area.join(",") : area;
   const url = `https://api.weather.gov/alerts/active?area=${encodeURIComponent(areaParam)}&event=Red%20Flag%20Warning`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
-  });
-  if (!res.ok) return [];
-  const data = (await res.json()) as any;
-  const features: any[] = data?.features || [];
+  let features: any[];
+  try {
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/geo+json" },
+      signal: upstreamTimeoutSignal(),
+    });
+    if (!res.ok) return { ok: false, polygons: null, complete: false, error: `NWS area alerts endpoint returned HTTP ${res.status}` };
+    const data = (await res.json()) as any;
+    features = data?.features || [];
+  } catch (e) {
+    return { ok: false, polygons: null, complete: false, error: `NWS area alerts fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
 
   // Process alerts in parallel so zone-geometry fetches don't serialize.
   const results = await Promise.all(
@@ -490,7 +580,14 @@ export async function fetchActiveRedFlagPolygons(area: string | string[] = "CA")
     })
   );
 
-  return results.filter((r): r is RedFlagPolygon => r !== null);
+  return {
+    ok: true,
+    polygons: results.map((r) => r.polygon).filter((r): r is RedFlagPolygon => r !== null),
+    // Every warning in the response must have fully resolved for the set to be
+    // trusted as "these are all the nearby warnings, at their true extents".
+    complete: results.every((r) => r.complete),
+    fetched_at: new Date().toISOString(),
+  };
 }
 
 // Resolve the point's OWN active warnings (as returned by fetchAlertsAtPoint) into
@@ -520,13 +617,32 @@ export async function resolveAlertsToPolygons(alerts: NWSAlert[]): Promise<RedFl
       })
     )
   );
-  return results.filter((r): r is RedFlagPolygon => r !== null);
+  return results.map((r) => r.polygon).filter((r): r is RedFlagPolygon => r !== null);
 }
 
 // ---------------------------------------------------------------------------
-// Verdict logic: classify the user's address into one of 4 states.
+// Verdict logic: classify the user's address into one of 5 states.
+// "data_unavailable" is the fail-safe state: the data needed to justify "safe"
+// could not be retrieved, so the verdict assumes warning conditions persist.
 // ---------------------------------------------------------------------------
-export type VerdictState = "in_zone" | "downwind_threat" | "adjacent" | "safe_tonight";
+export type VerdictState = "in_zone" | "downwind_threat" | "adjacent" | "safe_tonight" | "data_unavailable";
+
+// What the caller actually managed to fetch. Distinct from the data VALUES:
+// polygons=[] with polygons_ok=true means "NWS confirmed no warnings in the area";
+// polygons=[] with polygons_ok=false means "we have no idea what's nearby".
+// polygons_ok must also be false when the caller SKIPPED the regional fetch (e.g.
+// no derivable state) or when the set resolved only partially — unknown is unknown.
+export interface DataAvailability {
+  point_alerts_ok: boolean; // the authoritative NWS point-alert query succeeded
+  polygons_ok: boolean;     // the warning-polygon set was fetched AND fully resolved
+  forecast_ok: boolean;     // the wind forecast was fetched (or verified absent by NWS)
+}
+
+export interface VerdictDataStatus {
+  degraded: boolean;
+  failed_sources: ("point_alerts" | "regional_polygons" | "forecast")[];
+  note: string | null; // plain-English caveat for display when degraded
+}
 
 export interface NearestPolygonInfo {
   polygon_id: string;
@@ -584,6 +700,7 @@ export interface Verdict {
   nearest_polygon: NearestPolygonInfo | null;
   wind_vector: WindVector | null;
   downwind: DownwindAnalysis;
+  data_status: VerdictDataStatus;  // which live sources failed, if any
 }
 
 const DOWNWIND_MAX_DISTANCE_MI = 25;     // beyond this, wind alignment doesn't meaningfully matter for 1-night spread
@@ -609,8 +726,32 @@ export function classifyVerdict(
   // warning regardless of local point-in-polygon math (which can miss on zone
   // geometry that failed to resolve, multi-part zones, or simplification). This is
   // the fix for zone-based (UGC-only) warnings reading as safe_tonight.
-  forceInZone = false
+  forceInZone = false,
+  // What the caller actually managed to fetch. When omitted (pure-geometry unit
+  // tests that constructed their inputs directly), everything is assumed ok.
+  // PRODUCTION endpoints must pass the real availability of each source — it is
+  // what lets a would-be "safe_tonight" degrade to "data_unavailable" instead of
+  // falsely reassuring during an upstream outage.
+  availability?: DataAvailability
 ): Verdict {
+  const avail: DataAvailability = availability ?? { point_alerts_ok: true, polygons_ok: true, forecast_ok: true };
+  const failedSources: VerdictDataStatus["failed_sources"] = [];
+  if (!avail.point_alerts_ok) failedSources.push("point_alerts");
+  if (!avail.polygons_ok) failedSources.push("regional_polygons");
+  if (!avail.forecast_ok) failedSources.push("forecast");
+  const sourceLabels: Record<VerdictDataStatus["failed_sources"][number], string> = {
+    point_alerts: "warnings at your location",
+    regional_polygons: "warnings near your location",
+    forecast: "tonight's wind forecast",
+  };
+  const dataStatus: VerdictDataStatus = {
+    degraded: failedSources.length > 0,
+    failed_sources: failedSources,
+    note: failedSources.length > 0
+      ? `Live data was unreachable for: ${failedSources.map((s) => sourceLabels[s]).join(", ")}. Conditions may be worse than shown — verify at weather.gov.`
+      : null,
+  };
+
   // Step 1: is the user inside ANY active polygon?
   let inZonePolygon: RedFlagPolygon | null = null;
   for (const poly of polygons) {
@@ -681,6 +822,7 @@ export function classifyVerdict(
       nearest_polygon: nearest,
       wind_vector: windVector,
       downwind: { triggered: false, alignment_angle_deg: null, threat_level: "none", tier: null, explanation: "You are inside the active Red Flag Warning area." },
+      data_status: dataStatus,
     };
   }
 
@@ -740,6 +882,7 @@ export function classifyVerdict(
       nearest_polygon: nearest,
       wind_vector: windVector,
       downwind,
+      data_status: dataStatus,
     };
   }
 
@@ -751,6 +894,35 @@ export function classifyVerdict(
       nearest_polygon: nearest,
       wind_vector: windVector,
       downwind,
+      data_status: dataStatus,
+    };
+  }
+
+  // FAIL-SAFE GATE (the invariant at the top of CLAUDE.md: never falsely reassure).
+  // "safe_tonight" asserts a negative — "no warning applies to you tonight" — and is
+  // only as trustworthy as the data that failed to find one. If any source that could
+  // have contradicted it was unreachable, degrade to data_unavailable (assume warning
+  // conditions) instead of safe. The warning states above are deliberately NOT gated:
+  // missing data can only mean reality is worse than the warning already shown, and
+  // their data_status still records the gap for display.
+  //  - point_alerts failed: the authoritative "are you inside a warning" signal is gone.
+  //  - polygons failed / partial / skipped: a warning could sit right next to this
+  //    address without us ever having seen it.
+  //  - forecast failed with a warning inside the downwind cone: a wind-driven threat
+  //    toward this address cannot be ruled out.
+  const windUnknownNearWarning =
+    !avail.forecast_ok && nearest !== null && nearest.distance_mi <= DOWNWIND_MAX_DISTANCE_MI;
+  if (!avail.point_alerts_ok || !avail.polygons_ok || windUnknownNearWarning) {
+    return {
+      state: "data_unavailable",
+      headline: "Live warning data is unreachable right now.",
+      short_explanation: windUnknownNearWarning && avail.point_alerts_ok && avail.polygons_ok
+        ? `A Red Flag Warning is active ${Math.round(nearest!.distance_mi)} mi ${nearest!.bearing_to_polygon_compass} of you and tonight's wind forecast is unreachable, so a wind-driven threat toward your address cannot be ruled out. Assume warning conditions persist and check official sources.`
+        : "Assume warning conditions persist. This tool could not confirm your address is clear — check weather.gov or your county's emergency alerts before treating tonight as safe.",
+      nearest_polygon: nearest,
+      wind_vector: windVector,
+      downwind,
+      data_status: dataStatus,
     };
   }
 
@@ -765,6 +937,7 @@ export function classifyVerdict(
     nearest_polygon: nearest,
     wind_vector: windVector,
     downwind,
+    data_status: dataStatus,
   };
 }
 
@@ -772,10 +945,33 @@ export function classifyVerdict(
 // Action checklist generation
 // ---------------------------------------------------------------------------
 export interface ActionChecklist {
-  category: "in_zone" | "adjacent" | "out_of_zone";
+  category: "in_zone" | "adjacent" | "out_of_zone" | "data_unavailable";
   do_now: string[];
   do_not: string[];
   if_evacuation_called: string[];
+}
+
+// Fail-safe checklist for a data_unavailable verdict. Pushes toward preparedness
+// and independent verification without claiming a warning does or doesn't exist.
+export function buildDataUnavailableChecklist(): ActionChecklist {
+  return {
+    category: "data_unavailable",
+    do_now: [
+      "Live warning data is unreachable. Treat tonight as a possible fire-weather night until you can confirm otherwise.",
+      "Check weather.gov or local news for Red Flag Warnings in your area.",
+      "Keep your phone charged and bring it to bed with sound on.",
+      "Know where your go-bag essentials are: meds, IDs, phone charger, water, sturdy shoes.",
+      "Sign up for your county's emergency alerts if you haven't (link below).",
+    ],
+    do_not: [
+      "Do NOT assume you are clear because this tool could not retrieve warning data.",
+      "Avoid sparking activities outdoors until conditions are confirmed.",
+    ],
+    if_evacuation_called: [
+      "Leave immediately. Do not wait for a second notice.",
+      "Check Genasys Protect for your zone's status before driving.",
+    ],
+  };
 }
 
 export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean): ActionChecklist {
@@ -1053,11 +1249,13 @@ export interface PyrecastData {
     description: string | null;
     fire_behavior: string | null;
   };
+  // null when the ELMFIRE risk request failed: "we couldn't check the model" must
+  // stay distinguishable from a successful "the model shows no fire spread here".
   risk_forecast: {
     run_date: string;
     max_impacted_structures: number;
     is_active: boolean;
-  };
+  } | null;
   source: string;
 }
 
@@ -1097,11 +1295,14 @@ export async function fetchPyrecastData(lat: number, lng: number): Promise<Pyrec
       description: fuelInfo?.description ?? null,
       fire_behavior: fuelInfo?.fire_behavior ?? null,
     },
-    risk_forecast: {
-      run_date: runDate,
-      max_impacted_structures: Math.round(maxImpacted),
-      is_active: maxImpacted > 0,
-    },
+    // A failed risk request must not masquerade as "model shows no fire spread".
+    risk_forecast: riskOk
+      ? {
+          run_date: runDate,
+          max_impacted_structures: Math.round(maxImpacted),
+          is_active: maxImpacted > 0,
+        }
+      : null,
     source: "Pyrecast/Pyregence — ELMFIRE model, LANDFIRE 2.5.0 (open access)",
   };
 }
@@ -1120,17 +1321,24 @@ export const AIRNOW_FIRE_MAP = "https://fire.airnow.gov/";
 // ---------------------------------------------------------------------------
 // JSON response helpers
 // ---------------------------------------------------------------------------
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  // Degraded (data_unavailable) and error responses must pass "no-store": the default
+  // s-maxage + stale-while-revalidate would otherwise keep serving a failure verdict
+  // from the CDN for minutes after the upstream recovers.
+  cacheControl = "public, s-maxage=60, stale-while-revalidate=300"
+): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+      "Cache-Control": cacheControl,
     },
   });
 }
 
 export function errorResponse(message: string, status = 400): Response {
-  return jsonResponse({ error: message, status }, status);
+  return jsonResponse({ error: message, status }, status, "no-store");
 }

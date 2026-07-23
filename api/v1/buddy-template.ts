@@ -70,13 +70,26 @@ export default async function handler(req: Request): Promise<Response> {
     const lat = parseFloat(friendLat);
     const lng = parseFloat(friendLng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      const alerts = await fetchAlertsAtPoint(lat, lng);
-      const rf = alerts.filter((a) => a.event === "Red Flag Warning");
-      friendZoneStatus = {
-        in_red_flag_zone: rf.length > 0,
-        active_red_flag_warnings: rf,
-        genasys_evacuation_zone_lookup: genasysUrl(lat, lng),
-      };
+      const alertsRes = await fetchAlertsAtPoint(lat, lng);
+      if (alertsRes.ok) {
+        const rf = alertsRes.alerts.filter((a) => a.event === "Red Flag Warning");
+        friendZoneStatus = {
+          in_red_flag_zone: rf.length > 0,
+          data_unavailable: false,
+          active_red_flag_warnings: rf,
+          genasys_evacuation_zone_lookup: genasysUrl(lat, lng),
+        };
+      } else {
+        // Fail-safe: a failed NWS fetch is "unknown", never "not in a zone" — the
+        // check-in message should still go out.
+        friendZoneStatus = {
+          in_red_flag_zone: null,
+          data_unavailable: true,
+          note: "Live NWS warning data is unreachable; this address could not be verified. Assume warning conditions and send the check-in anyway.",
+          active_red_flag_warnings: [],
+          genasys_evacuation_zone_lookup: genasysUrl(lat, lng),
+        };
+      }
     }
   }
 

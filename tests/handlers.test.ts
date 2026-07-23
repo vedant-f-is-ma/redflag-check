@@ -19,6 +19,7 @@ function routeFetch(routes: Record<string, any>) {
     for (const [pat, val] of Object.entries(routes)) {
       if (url.includes(pat)) {
         if (val === "ERR") return new Response("err", { status: 500 });
+        if (val === "THROW") throw new Error("network down");
         return new Response(JSON.stringify(val), { status: 200, headers: { "Content-Type": "application/json" } });
       }
     }
@@ -29,7 +30,7 @@ function routeFetch(routes: Record<string, any>) {
 const NWS_POINTS = { properties: { forecastHourly: "https://api.weather.gov/hourly-x" } };
 const NWS_HOURLY = { properties: { periods: [{ startTime: "t", endTime: "t2", temperature: 70, windSpeed: "30 mph", windDirection: "NE", relativeHumidity: { value: 15 }, shortForecast: "Windy" }] } };
 const EMPTY = { features: [] };
-const CENSUS_MATCH = { result: { addressMatches: [{ coordinates: { x: -122.27, y: 37.87 }, matchedAddress: "1980 ALLSTON WAY, BERKELEY", addressComponents: { zip: "94704" } }] } };
+const CENSUS_MATCH = { result: { addressMatches: [{ coordinates: { x: -122.27, y: 37.87 }, matchedAddress: "1980 ALLSTON WAY, BERKELEY", addressComponents: { zip: "94704", state: "CA" } }] } };
 const baseForecast = { "/points/": NWS_POINTS, "hourly-x": NWS_HOURLY };
 const req = (path: string, init?: any) => new Request("https://redflag-check.info" + path, init);
 
@@ -53,9 +54,10 @@ describe("zone-check", () => {
   });
   test("lat/lng path reverse-geocodes a label with a key", async () => {
     process.env.GEOAPIFY_API_KEY = "k";
-    routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast, "geoapify.com/v1/geocode/reverse": { results: [{ street: "Skyline Blvd", city: "Oakland" }] } });
+    routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast, "geoapify.com/v1/geocode/reverse": { results: [{ street: "Skyline Blvd", city: "Oakland", state_code: "CA" }] } });
     const d = await (await zoneCheck(req("/api/v1/zone-check?lat=37.8&lng=-122.18"))).json();
     expect(d.location.matched_address).toBe("near Skyline Blvd, Oakland");
+    expect(d.verdict.state).toBe("safe_tonight"); // state derived -> regional set verified empty
   });
   test("lat/lng out-of-zone: reverse-geocoded state restores nearest/adjacency", async () => {
     // The point isn't in a warning, but a warning sits ~4 mi away. Geolocation users
@@ -145,6 +147,84 @@ describe("zone-check", () => {
   });
 });
 
+// --- FAIL-SAFE: upstream outages must degrade toward warning, never toward "safe". ---
+// Regression for the original bug: fetchAlertsAtPoint's `if (!res.ok) return []`
+// made an NWS outage indistinguishable from "no active alerts", so classifyVerdict
+// returned safe_tonight during exactly the degraded-infrastructure moment when a
+// false all-clear is most dangerous.
+describe("zone-check fail-safe on upstream failure", () => {
+  test("NWS point-alert 500 -> data_unavailable, never safe_tonight", async () => {
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": "ERR", "alerts/active?area": EMPTY, ...baseForecast });
+    const res = await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"));
+    const d = await res.json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.verdict.state).not.toBe("safe_tonight");
+    expect(d.verdict.headline).toContain("unreachable");
+    expect(d.in_red_flag_zone).toBeNull();                    // unknown, not false
+    expect(d.action_checklist.category).toBe("data_unavailable");
+    expect(d.data_status.degraded).toBe(true);
+    expect(d.data_status.failed_sources).toContain("point_alerts");
+    // Degraded responses must not linger in the CDN after NWS recovers.
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+  });
+  test("NWS point-alert network throw (timeout/outage) -> data_unavailable", async () => {
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": "THROW", "alerts/active?area": EMPTY, ...baseForecast });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.in_red_flag_zone).toBeNull();
+  });
+  test("point query ok (empty) but regional polygon fetch 500 -> data_unavailable, not 'nothing near you'", async () => {
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": "ERR", ...baseForecast });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.data_status.failed_sources).toEqual(["regional_polygons"]);
+    expect(d.in_red_flag_zone).toBe(false); // the point query itself DID verify not-inside
+  });
+  test("forecast down with a warning 10mi away -> data_unavailable (downwind can't be ruled out)", async () => {
+    routeFetch({
+      "geocoding.geo.census.gov": CENSUS_MATCH, // 37.87, -122.27
+      "alerts/active?point": EMPTY,
+      "alerts/active?area": { features: [ // ~10mi east of the address
+        { id: "near", properties: { event: "Red Flag Warning", areaDesc: "Hills" }, geometry: { type: "Polygon", coordinates: [[[-122.08, 37.82], [-122.04, 37.82], [-122.04, 37.92], [-122.08, 37.92], [-122.08, 37.82]]] } },
+      ] },
+      "/points/": "ERR",
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.verdict.short_explanation).toContain("cannot be ruled out");
+    expect(d.data_status.failed_sources).toEqual(["forecast"]);
+  });
+  test("warning verdicts survive partial outages: in_zone with the forecast down", async () => {
+    routeFetch({
+      "geocoding.geo.census.gov": CENSUS_MATCH,
+      "alerts/active?point": { features: [{ id: "u", properties: { event: "Red Flag Warning", headline: "h", areaDesc: "Hills" } }] },
+      "alerts/active?area": EMPTY,
+      "/points/": "ERR",
+    });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.state).toBe("in_zone");
+    expect(d.in_red_flag_zone).toBe(true);
+    expect(d.data_status.degraded).toBe(true); // outage still surfaced to the UI
+  });
+  test("lat/lng with no derivable state: nearby warnings are unknown -> data_unavailable, not 'none anywhere near you'", async () => {
+    // Reverse geocode down (no key) while the point query is fine: the regional set
+    // was never fetched, so a 3mi-away warning would be invisible. Must not read safe.
+    delete process.env.GEOAPIFY_API_KEY;
+    routeFetch({ "alerts/active?point": EMPTY, ...baseForecast });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?lat=37.8&lng=-122.18"))).json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.data_status.failed_sources).toEqual(["regional_polygons"]);
+  });
+  test("healthy responses keep the CDN cache and a clean data_status", async () => {
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
+    const res = await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"));
+    const d = await res.json();
+    expect(d.verdict.state).toBe("safe_tonight");
+    expect(d.data_status.degraded).toBe(false);
+    expect(res.headers.get("Cache-Control")).toContain("s-maxage");
+  });
+});
+
 describe("school-status", () => {
   test("valid id returns verdict + decision", async () => {
     routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
@@ -167,6 +247,24 @@ describe("school-status", () => {
     const d = await (await schoolStatus(req("/api/v1/school-status?id=" + SCHOOLS[0].id))).json();
     expect(d.in_red_flag_zone).toBe(true);
     expect(d.decision_recommendation.level).toBe("indoors_only");
+  });
+  // FAIL-SAFE: "normal operations" is a reassurance to a school administrator and
+  // must never be issued because the warning check silently failed.
+  test("NWS outage -> never 'normal operations'; verdict is data_unavailable", async () => {
+    routeFetch({ "alerts/active?point": "ERR", "alerts/active?area": "ERR", "/points/": "ERR" });
+    const d = await (await schoolStatus(req("/api/v1/school-status?id=" + SCHOOLS[0].id))).json();
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.in_red_flag_zone).toBeNull();                      // unknown, not false
+    expect(d.decision_recommendation.level).not.toBe("normal");
+    expect(d.decision_recommendation.level).toBe("modify_outdoor");
+    expect(d.decision_recommendation.rationale).toContain("unreachable");
+    expect(d.data_status.degraded).toBe(true);
+  });
+  test("calm night with only the forecast down: recommendation is capped, not 'normal'", async () => {
+    routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, "/points/": "ERR" });
+    const d = await (await schoolStatus(req("/api/v1/school-status?id=" + SCHOOLS[0].id))).json();
+    expect(d.decision_recommendation.level).toBe("modify_outdoor");
+    expect(d.decision_recommendation.source).toContain("fail-safe");
   });
 });
 
@@ -335,6 +433,14 @@ describe("buddy-template", () => {
     routeFetch({ "alerts/active": { features: [{ id: "a", properties: { event: "Red Flag Warning", areaDesc: "X" } }] } });
     const d = await (await buddyTemplate(req("/api/v1/buddy-template?name=Jo&time=2026-06-20T05:30:00Z&friend_lat=37.8&friend_lng=-122.18"))).json();
     expect(d.friend_zone_status.in_red_flag_zone).toBe(true);
+    expect(d.friend_zone_status.data_unavailable).toBe(false);
+  });
+  test("fail-safe: NWS outage marks the friend's zone unknown, never 'not in zone'", async () => {
+    routeFetch({ "alerts/active": "ERR" });
+    const d = await (await buddyTemplate(req("/api/v1/buddy-template?name=Jo&time=2026-06-20T05:30:00Z&friend_lat=37.8&friend_lng=-122.18"))).json();
+    expect(d.friend_zone_status.in_red_flag_zone).toBeNull();
+    expect(d.friend_zone_status.data_unavailable).toBe(true);
+    expect(d.friend_zone_status.note).toContain("Assume warning conditions");
   });
   test("non-finite friend coords are ignored", async () => {
     const d = await (await buddyTemplate(req("/api/v1/buddy-template?friend_lat=abc&friend_lng=def"))).json();

@@ -64,8 +64,16 @@ paths:
       description: |
         Geocodes the address (US Census), pulls active NWS alerts at the point, fetches
         hourly forecast (wind, RH), builds a category-aware action checklist
-        (`in_zone` / `adjacent` / `out_of_zone`), and returns pre-built Genasys evacuation-zone
-        and AC Alert sign-up links. Either `address` or both `lat` and `lng` must be provided.
+        (`in_zone` / `adjacent` / `out_of_zone` / `data_unavailable`), and returns pre-built
+        Genasys evacuation-zone and AC Alert sign-up links. Either `address` or both `lat`
+        and `lng` must be provided.
+
+        **Fail-safe behaviour:** if the NWS data needed to justify a "safe" answer cannot be
+        retrieved (outage, timeout), the response is still HTTP 200 but the verdict state is
+        `data_unavailable`, `in_red_flag_zone` is `null` (unknown — never a false `false`),
+        `data_status.degraded` is `true`, and the checklist tells the user to assume warning
+        conditions and verify at weather.gov. Integrators must treat `data_unavailable` as
+        "act as if warned", not as "no warning".
       parameters:
         - name: address
           in: query
@@ -309,8 +317,14 @@ components:
             lng_requested: { type: [number, "null"], nullable: true }
         location:    { $ref: "#/components/schemas/Location" }
         in_red_flag_zone:
-          type: boolean
-          description: True if at least one active NWS Red Flag Warning polygon covers the resolved point.
+          type: [boolean, "null"]
+          nullable: true
+          description: >
+            True if at least one active NWS Red Flag Warning covers the resolved point.
+            null when the NWS point query failed and containment could not be established —
+            unknown, deliberately never reported as false during an outage.
+        data_status:
+          $ref: "#/components/schemas/DataStatus"
         alerts:
           type: array
           items: { $ref: "#/components/schemas/Alert" }
@@ -397,7 +411,10 @@ components:
       properties:
         category:
           type: string
-          enum: [in_zone, adjacent, out_of_zone]
+          enum: [in_zone, adjacent, out_of_zone, data_unavailable]
+          description: >
+            data_unavailable is the fail-safe category: live NWS data could not be
+            retrieved, so the checklist assumes warning conditions persist.
         do_now:
           type: array
           items: { type: string }
@@ -407,6 +424,25 @@ components:
         if_evacuation_called:
           type: array
           items: { type: string }
+
+    DataStatus:
+      type: object
+      description: >
+        Which live upstream sources failed while building this response. When degraded
+        is true the response was computed without some safety-relevant data; a would-be
+        "safe_tonight" verdict is replaced by "data_unavailable" in that case, and the
+        response is served with Cache-Control no-store.
+      properties:
+        degraded: { type: boolean }
+        failed_sources:
+          type: array
+          items:
+            type: string
+            enum: [point_alerts, regional_polygons, forecast]
+        note:
+          type: [string, "null"]
+          nullable: true
+          description: Plain-English caveat suitable for direct display.
 
     Links:
       type: object
@@ -495,7 +531,11 @@ components:
       type: object
       properties:
         school:           { $ref: "#/components/schemas/School" }
-        in_red_flag_zone: { type: boolean }
+        in_red_flag_zone:
+          type: [boolean, "null"]
+          nullable: true
+          description: null when the NWS point query failed — unknown, never a false "false".
+        data_status:      { $ref: "#/components/schemas/DataStatus" }
         alerts:
           type: array
           items: { $ref: "#/components/schemas/Alert" }
@@ -516,6 +556,10 @@ components:
         level:
           type: string
           enum: [normal, modify_outdoor, indoors_only, consider_closure]
+          description: >
+            Fail-safe: "normal" is never issued while live NWS data is unreachable —
+            a degraded response caps the recommendation at modify_outdoor with a
+            rationale explaining the data gap (see data_status).
         rationale:
           type: string
           description: Plain-English explanation citing CIF AQI thresholds and fire-weather conditions.
@@ -546,7 +590,16 @@ components:
     FriendZoneStatus:
       type: object
       properties:
-        in_red_flag_zone: { type: boolean }
+        in_red_flag_zone:
+          type: [boolean, "null"]
+          nullable: true
+          description: null when live NWS data was unreachable — unknown, not "not in a zone".
+        data_unavailable:
+          type: boolean
+          description: True when the NWS lookup failed; assume warning conditions and send the check-in anyway.
+        note:
+          type: string
+          description: Present when data_unavailable is true; plain-English caveat.
         active_red_flag_warnings:
           type: array
           items: { $ref: "#/components/schemas/Alert" }

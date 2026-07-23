@@ -46,6 +46,23 @@ describe("demoVerdict", () => {
   test("unknown state falls back to safe_tonight", () => {
     expect(demoVerdict("bogus").verdict.state).toBe("safe_tonight");
   });
+  // The fail-safe state, previewable via ?demo=data_unavailable (so the outage banner
+  // can be reviewed/filmed without waiting for a real NWS outage).
+  test("data_unavailable demo simulates a full outage: degraded, no geometry, honest checklist", () => {
+    const d = demoVerdict("data_unavailable");
+    expect(d.verdict.state).toBe("data_unavailable");
+    expect(d.verdict.headline).toContain("unreachable");
+    expect(d.verdict.nearest_polygon).toBeNull();      // nothing drawable during an outage
+    expect(d.data_status.degraded).toBe(true);
+    expect(d.action_checklist.category).toBe("data_unavailable");
+    expect(d.action_checklist.do_not.join(" ")).toContain("Do NOT assume you are clear");
+    expect(d.fire_context).toBeNull();                 // no "live" ELMFIRE claims in an outage demo
+  });
+  test("healthy demo states report a clean data_status (freshness line stays green)", () => {
+    for (const s of STATES) {
+      expect(demoVerdict(s).data_status.degraded).toBe(false);
+    }
+  });
 });
 
 describe("demoVerdict downwind tiers", () => {

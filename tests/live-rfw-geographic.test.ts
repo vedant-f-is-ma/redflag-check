@@ -118,8 +118,19 @@ function interiorPoints(geom: any, perZone: number): Array<[number, number]> {
 
         for (const [la, ln, u] of sample) {
           // EXACT handler in_zone path: point query is authoritative; geometry enriches.
-          const pointAlerts = await fetchAlertsAtPoint(la, ln);
-          const rfw = pointAlerts.filter((a) => a.event === "Red Flag Warning");
+          // The point fetch now returns a discriminated result; retry transient failures
+          // so a network flake doesn't misread as a logic miss (previously a failed fetch
+          // returned [] and was indistinguishable from safe — the bug this suite guards).
+          let alertsRes = await fetchAlertsAtPoint(la, ln);
+          for (let a = 0; !alertsRes.ok && a < 4; a++) {
+            await new Promise((r) => setTimeout(r, 1200 * (a + 1)));
+            alertsRes = await fetchAlertsAtPoint(la, ln);
+          }
+          if (!alertsRes.ok) {
+            console.warn(`[live-rfw] point query kept failing at ${st} ${la},${ln} (${u}) — skipping point, not a logic miss`);
+            continue;
+          }
+          const rfw = alertsRes.alerts.filter((a) => a.event === "Red Flag Warning");
           const polys = await resolveAlertsToPolygons(rfw);
           const verdict = classifyVerdict(la, ln, polys, null, rfw.length > 0);
           checked++;

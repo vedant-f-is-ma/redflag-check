@@ -71,11 +71,17 @@ export default async function handler(req: Request): Promise<Response> {
   const school = findSchool(id);
   if (!school) return errorResponse(`Unknown school id: ${id}`, 404);
 
-  const [alerts, forecast, statePolygons] = await Promise.all([
+  const [alertsRes, forecastRes, polyRes] = await Promise.all([
     fetchAlertsAtPoint(school.lat, school.lng),
     fetchForecastSummary(school.lat, school.lng),
     fetchActiveRedFlagPolygons("CA"),
   ]);
+
+  // A failed fetch is "unknown", never "no alerts" — availability below carries the
+  // failures into the verdict so they degrade toward warning, not toward "normal".
+  const alerts = alertsRes.ok ? alertsRes.alerts : [];
+  const forecast = forecastRes.forecast;
+  const statePolygons = polyRes.ok ? polyRes.polygons : [];
 
   const redFlag = alerts.filter((a) => a.event === "Red Flag Warning");
   const inZone = redFlag.length > 0;
@@ -84,22 +90,45 @@ export default async function handler(req: Request): Promise<Response> {
   const maxWind = forecast?.tonight.max_wind_mph ?? 0;
   const minHumidity = forecast?.tonight.min_humidity_pct ?? null;
 
-  const decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent);
+  let decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent);
 
-  // A school is just a named lat/lng, so compute the same 4-state verdict + map the
+  // A school is just a named lat/lng, so compute the same 5-state verdict + map the
   // address path does, the result can then show the geo-map + wind/fire overlay.
   // Pass the point-query in_zone result as the authoritative signal so the verdict
   // stays consistent with `in_red_flag_zone` even if the CA polygon set's geometry
   // resolution misses (zone-based warning that failed to resolve, multi-part zone).
-  const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast, inZone);
+  const verdict = classifyVerdict(school.lat, school.lng, statePolygons, forecast, inZone, {
+    point_alerts_ok: alertsRes.ok,
+    polygons_ok: polyRes.ok && polyRes.complete,
+    forecast_ok: forecastRes.ok,
+  });
+
+  // FAIL-SAFE: "normal operations" is a reassurance and must not be issued on missing
+  // data — a failed warning check or wind forecast could be hiding exactly the
+  // condition that would have raised the level. Cap the recommendation instead.
+  if (verdict.data_status.degraded && decision.level === "normal") {
+    decision = {
+      level: "modify_outdoor",
+      rationale:
+        "Live NWS data for this campus is partly or fully unreachable right now, so normal operations cannot be responsibly recommended. Verify current warnings and wind at weather.gov before authorizing outdoor activities.",
+      source: "Data-availability fail-safe (upstream fetch failed)",
+    };
+  }
+
   const map_views = buildStaticMapUrls(school.lat, school.lng, verdict.nearest_polygon);
 
   return jsonResponse({
     school,
     location: { lat: school.lat, lng: school.lng, matched_address: `${school.name}, ${school.city}` },
     verdict,
+    data_status: {
+      degraded: verdict.data_status.degraded,
+      failed_sources: verdict.data_status.failed_sources,
+      note: verdict.data_status.note,
+    },
     map_views,
-    in_red_flag_zone: inZone,
+    // null — unknown — when the point query failed; false would falsely reassure.
+    in_red_flag_zone: alertsRes.ok ? inZone : null,
     alerts: redFlag,
     forecast: forecast?.tonight ?? null,
     forecast_next_24h: forecast?.next_24h ?? null,
@@ -113,5 +142,5 @@ export default async function handler(req: Request): Promise<Response> {
     disclaimer:
       "Informational guidance only. Final closure / modification decisions rest with district leadership and county health officer. This service does NOT replace official district SOPs. Full Terms of Use & Disclaimer: https://redflag-check.info/terms",
     generated_at: new Date().toISOString(),
-  });
+  }, 200, verdict.data_status.degraded ? "no-store" : undefined);
 }
