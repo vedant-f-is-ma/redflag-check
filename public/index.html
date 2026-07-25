@@ -272,6 +272,9 @@
     font-size: 1rem;
     font-family: inherit;
   }
+  /* Placeholder at --text-dim (WCAG AA: 6.26:1 dark / 6.05:1 light on --bg-input).
+     opacity:1 overrides Firefox's default placeholder dimming so the color is exact. */
+  input::placeholder { color: var(--text-dim); opacity: 1; }
   input:focus, select:focus {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
@@ -849,7 +852,7 @@
       <div class="hero-or"><span>or type your address</span></div>
       <div class="hero-addr">
         <div class="addr-combo">
-          <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way, Berkeley" autocomplete="off" inputmode="text" autocapitalize="words" aria-label="Your address" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="addr-suggest">
+          <input type="text" id="address-input" placeholder="e.g., 1980 Allston Way" autocomplete="off" inputmode="text" autocapitalize="words" aria-label="Your address" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="addr-suggest">
           <ul id="addr-suggest" class="addr-suggest" role="listbox" aria-label="Address suggestions" hidden></ul>
         </div>
         <button class="check-btn-2" id="check-btn">Check</button>
@@ -884,7 +887,7 @@
       <label for="buddy-name">Friend's name</label>
       <input type="text" id="buddy-name" placeholder="e.g., Jane" autocomplete="off">
       <label for="buddy-address" style="margin-top:.75rem">Friend's address (optional, for zone lookup)</label>
-      <input type="text" id="buddy-address" placeholder="e.g., 12250 Skyline Blvd, Oakland" autocomplete="off">
+      <input type="text" id="buddy-address" placeholder="e.g., 12250 Skyline Blvd" autocomplete="off">
       <button class="primary" id="buddy-btn">Make my buddy check</button>
     </div>
     <div id="buddy-result" role="status" aria-live="polite" aria-atomic="false"></div>
