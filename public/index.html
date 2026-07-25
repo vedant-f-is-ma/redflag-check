@@ -1162,6 +1162,7 @@ async function runZoneCheck(qs, label) {
     upgradeGeoMap(data, out, getMapZoom());
     bindMapZoom(out, data);
     if (data.location && isFinite(data.location.lat) && isFinite(data.location.lng)) setNearbySchools(data.location.lat, data.location.lng);
+    saveUserLoc(data);
     try { out.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) {}
     track("address_checked", {
       in_zone: data.in_red_flag_zone,
@@ -1273,25 +1274,69 @@ $("#locate-btn").addEventListener("click", () => {
 // large enough that some zone is nearly always under an RFW), which is cry-wolf noise.
 // A local reference point is what makes this line informative. The label says "East Bay"
 // explicitly so it is never mistaken for a verdict about the visitor's own address.
+// Extract a short, human area label ("Berkeley") from a matched_address string, walking
+// from the end and skipping state ("CA" / "CA 94704"), bare-ZIP, and street-number tokens.
+// Returns "" if no confident city token is found (caller falls back to a generic phrase).
+function shortArea(m) {
+  if (!m || typeof m !== "string") return "";
+  const parts = m.replace(/^near\s+/i, "").split(",").map((x) => x.trim()).filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const t = parts[i];
+    if (/^[A-Z]{2}(\s+\d{5}(-\d{4})?)?$/.test(t)) continue; // "CA" or "CA 94704"
+    if (/^\d{5}(-\d{4})?$/.test(t)) continue;               // bare ZIP
+    if (/^\d/.test(t)) continue;                            // street-number-led token
+    return t;
+  }
+  return "";
+}
+
+// Remember the user's OWN last-checked location so the ambient banner can be about THEM on
+// the next visit, instead of a hardcoded region. Stored locally only; never sent anywhere.
+function saveUserLoc(data) {
+  try {
+    const loc = data && data.location;
+    if (!loc || !isFinite(loc.lat) || !isFinite(loc.lng)) return;
+    localStorage.setItem("rfc_last_loc", JSON.stringify({ lat: loc.lat, lng: loc.lng, area: shortArea(loc.matched_address) }));
+  } catch (e) { /* private mode / storage off: banner just stays neutral */ }
+}
+
+// Ambient top-of-page status banner. Personalized to the user's OWN last-checked area
+// (from localStorage), NOT to any fixed region — a location-scoped "all clear" is only
+// honest for a place we actually checked, so before we know where the user is we make NO
+// active/inactive claim. Also fail-safe: a degraded/data_unavailable read never renders
+// "no active warning" (same rule as the verdict path).
 (async function loadStatus() {
   const el = $("#status-line");
   if (!el) return;
+  const neutral = "Check any California address below to see if tonight's Red Flag Warning applies to it.";
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("rfc_last_loc") || "null"); } catch (e) {}
+  if (!saved || !isFinite(saved.lat) || !isFinite(saved.lng)) {
+    el.textContent = neutral;
+    el.className = "status-line";
+    return;
+  }
+  const where = saved.area ? `near ${saved.area}` : "near the area you last checked";
   try {
-    const r = await fetch(`${API}/api/v1/zone-check?lat=37.8044&lng=-122.1900`);
+    const r = await fetch(`${API}/api/v1/zone-check?lat=${encodeURIComponent(saved.lat)}&lng=${encodeURIComponent(saved.lng)}`);
     if (!r.ok) throw 0;
     const d = await r.json();
     const v = d.verdict || {};
+    const degraded = (d.data_status && d.data_status.degraded) || v.state === "data_unavailable";
     const near = v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi) ? v.nearest_polygon.distance_mi : Infinity;
     const active = v.state === "in_zone" || v.state === "downwind_threat" || v.state === "adjacent" || near <= 40;
-    if (active) {
-      el.textContent = "⚠ Active Red Flag Warning in the East Bay area tonight. Check your address.";
+    if (degraded) {
+      el.textContent = "⚠ Live warning data is limited right now — check your address and official sources.";
+      el.className = "status-line status-alert";
+    } else if (active) {
+      el.textContent = `⚠ Active Red Flag Warning ${where} tonight. Check your address.`;
       el.className = "status-line status-alert";
     } else {
-      el.textContent = "✓ No active Red Flag Warning near the East Bay right now. Check any address below.";
+      el.textContent = `✓ No active Red Flag Warning ${where} right now. Check any address below.`;
       el.className = "status-line status-clear";
     }
   } catch (e) {
-    el.textContent = "Type your address to check tonight's fire warning.";
+    el.textContent = neutral;
     el.className = "status-line";
   }
 })();
