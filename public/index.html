@@ -958,7 +958,10 @@ try { ES_ON = localStorage.getItem("rfc-lang") === "es"; } catch (e) {}
 // Last rendered zone-check payload, kept so toggling language can re-render the
 // same result rather than re-querying (a re-query could return a DIFFERENT
 // verdict, which would make a language toggle look like a safety state change).
+// The share label rides along because the re-render must also re-run bindShare
+// (innerHTML replacement destroys the copy-link button's listener).
 let LAST_RESULT_DATA = null;
+let LAST_RESULT_LABEL = "your address";
 
 // Bilingual wrapper for a safety string. Returns the escaped English, plus a
 // Spanish line only when the WHOLE string is covered (i18n-es.js rule 2).
@@ -1196,6 +1199,7 @@ async function runZoneCheck(qs, label) {
     // final and correct at this point, only the annotated map image is still catching up.
     const staleMapSrc = out.querySelector(".geomap-canvas .geomap-img")?.src;
     LAST_RESULT_DATA = data;
+    LAST_RESULT_LABEL = label || "your address";
     out.innerHTML = renderZoneResult(data);
     if (staleMapSrc) {
       const freshCanvas = out.querySelector(".geomap-canvas");
@@ -1410,11 +1414,18 @@ function saveUserLoc(data) {
     ES_ON = !ES_ON;
     try { localStorage.setItem("rfc-lang", ES_ON ? "es" : "en"); } catch (e) {}
     paint();
-    // Re-render whatever result is on screen from its cached payload.
-    if (LAST_RESULT_DATA && $("#result")) {
-      $("#result").innerHTML = renderZoneResult(LAST_RESULT_DATA);
-      upgradeGeoMap(LAST_RESULT_DATA, $("#result"), getMapZoom());
-      bindMapZoom($("#result"), LAST_RESULT_DATA);
+    // Re-render whatever result is on screen from its cached payload. The
+    // container is #zone-result (there is no #result -- an earlier version of
+    // this handler targeted that nonexistent id, which made the toggle appear
+    // to do nothing until the next full render; caught by Chintan on the live
+    // site). Re-run the same post-render bindings the original render path
+    // runs, because innerHTML replacement destroys their listeners.
+    const zr = $("#zone-result");
+    if (LAST_RESULT_DATA && zr && zr.innerHTML.trim()) {
+      zr.innerHTML = renderZoneResult(LAST_RESULT_DATA);
+      bindShare(LAST_RESULT_LABEL, LAST_RESULT_DATA);
+      upgradeGeoMap(LAST_RESULT_DATA, zr, getMapZoom());
+      bindMapZoom(zr, LAST_RESULT_DATA);
     }
     track("lang_toggled", { lang: ES_ON ? "es" : "en" });
   });
@@ -2202,6 +2213,8 @@ function renderBuddyResult(d) {
   const data = demoVerdict(demoState);
   const out = $("#zone-result");
   if (out) {
+    LAST_RESULT_DATA = data;
+    LAST_RESULT_LABEL = "demo address";
     out.innerHTML = renderZoneResult(data);
     bindShare("demo address", data);
     upgradeGeoMap(data, out, getMapZoom());

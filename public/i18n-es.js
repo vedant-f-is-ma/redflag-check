@@ -79,6 +79,10 @@ export const ES = {
   // ---- Downwind tier guidance (the urgent half of the explanation) ---------
   "Be ready to evacuate or follow local emergency instructions immediately.":
     "Prepárese para evacuar. Siga de inmediato las instrucciones de emergencia locales.",
+  "Expect elevated fire and smoke conditions over the next day or two. Prepare a go-bag and monitor official updates.":
+    "Espere condiciones elevadas de incendio y humo durante el próximo día o dos. Prepare una mochila de emergencia y siga las actualizaciones oficiales.",
+  "Smoke and air quality impacts are the main concern right now. Direct fire threat is lower in the short term, but conditions can change quickly.":
+    "Por ahora, la principal preocupación es el humo y la mala calidad del aire. La amenaza directa de incendio es menor a corto plazo, pero las condiciones pueden cambiar rápidamente.",
 
   // ---- Section labels (must match what index.html actually renders) --------
   "Bottom line": "Lo más importante",
