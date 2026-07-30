@@ -92,6 +92,28 @@
     font-family: inherit;
   }
   .ui-toggle:hover { background: var(--bg-input); }
+  /* Spanish layer. Rendered BENEATH the English, visually subordinate so it can
+     never be mistaken for the authoritative text, but still fully legible. */
+  .es-line {
+    display: block;
+    margin-top: .28rem;
+    color: var(--text-dim);
+    font-size: .95em;
+    line-height: 1.45;
+    border-left: 2px solid var(--border);
+    padding-left: .6rem;
+  }
+  .es-notice {
+    border: 1px solid var(--border-warn, var(--accent));
+    background: var(--bg-input);
+    border-radius: 8px;
+    padding: .7rem .85rem;
+    margin: 0 0 .9rem;
+    font-size: .9rem;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .es-notice strong { display: block; margin-bottom: .25rem; }
   .ui-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .container { position: relative; }
 
@@ -830,6 +852,9 @@
     <button class="ui-toggle" id="theme-toggle" aria-label="Toggle light and dark mode" title="Toggle light/dark">
       <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
     </button>
+    <button class="ui-toggle" id="lang-toggle" aria-label="Mostrar traducción al español / Show Spanish translation" title="Español" aria-pressed="false">
+      <span id="lang-toggle-icon" aria-hidden="true">ES</span>
+    </button>
   </div>
   <header>
     <h1><span class="flag" aria-hidden="true">🚩</span> Red Flag Check</h1>
@@ -922,6 +947,30 @@
 
 <script type="module">
 import { esc, geoMapSVG, mapOverlay, demoVerdict } from "./lib.js";
+import { es, esExplanation } from "./i18n-es.js";
+
+// ── Spanish layer (v1, AI-drafted, human review pending) ────────────────────
+// Renders Spanish BENEATH the English, never instead of it, so a translation
+// error can never be the only thing on screen. Off by default; the preference
+// is remembered locally. Nothing here touches the verdict.
+let ES_ON = false;
+try { ES_ON = localStorage.getItem("rfc-lang") === "es"; } catch (e) {}
+// Last rendered zone-check payload, kept so toggling language can re-render the
+// same result rather than re-querying (a re-query could return a DIFFERENT
+// verdict, which would make a language toggle look like a safety state change).
+let LAST_RESULT_DATA = null;
+
+// Bilingual wrapper for a safety string. Returns the escaped English, plus a
+// Spanish line only when the WHOLE string is covered (i18n-es.js rule 2).
+// `fn` lets callers pass esExplanation for the runtime-assembled explanation.
+function bi(text, fn) {
+  const english = esc(text || "");
+  if (!ES_ON || !text) return english;
+  const spanish = (fn || es)(text);
+  return spanish
+    ? `${english}<span class="es-line" lang="es">${esc(spanish)}</span>`
+    : english;
+}
 const API = ""; // same-origin
 
 // Tab switching, full ARIA tablist pattern: aria-selected, roving tabindex,
@@ -1146,6 +1195,7 @@ async function runZoneCheck(qs, label) {
     // while the authoritative map reloads behind it -- the verdict text below is already
     // final and correct at this point, only the annotated map image is still catching up.
     const staleMapSrc = out.querySelector(".geomap-canvas .geomap-img")?.src;
+    LAST_RESULT_DATA = data;
     out.innerHTML = renderZoneResult(data);
     if (staleMapSrc) {
       const freshCanvas = out.querySelector(".geomap-canvas");
@@ -1342,6 +1392,32 @@ function saveUserLoc(data) {
     el.textContent = neutral;
     el.className = "status-line";
   }
+})();
+
+// ── Spanish toggle ─────────────────────────────────────────────────────────
+// Re-renders the last result so the bilingual layer appears/disappears without a
+// reload. Purely presentational: the verdict itself is never recomputed here.
+(function bindLangToggle() {
+  const btn = $("#lang-toggle");
+  if (!btn) return;
+  const paint = () => {
+    btn.setAttribute("aria-pressed", ES_ON ? "true" : "false");
+    btn.classList.toggle("active", ES_ON);
+    btn.title = ES_ON ? "Ver solo en inglés / English only" : "Ver en español";
+  };
+  paint();
+  btn.addEventListener("click", () => {
+    ES_ON = !ES_ON;
+    try { localStorage.setItem("rfc-lang", ES_ON ? "es" : "en"); } catch (e) {}
+    paint();
+    // Re-render whatever result is on screen from its cached payload.
+    if (LAST_RESULT_DATA && $("#result")) {
+      $("#result").innerHTML = renderZoneResult(LAST_RESULT_DATA);
+      upgradeGeoMap(LAST_RESULT_DATA, $("#result"), getMapZoom());
+      bindMapZoom($("#result"), LAST_RESULT_DATA);
+    }
+    track("lang_toggled", { lang: ES_ON ? "es" : "en" });
+  });
 })();
 
 // SVG compass: iconic rendering, 🏠 for the user, a cluster of 🔥 for the active warning region,
@@ -1626,6 +1702,16 @@ function renderZoneResult(d) {
   const tierClass = tier ? ` tier-${tier}` : "";
   const headline = v.headline || "Result";
   const explanation = v.short_explanation || "";
+  const headlineHtml = bi(headline);
+  const explanationHtml = bi(explanation, esExplanation);
+  // AI-translation notice. Shown whenever the Spanish layer is on, above the
+  // verdict, so nobody reads the Spanish without knowing what produced it and
+  // which language is authoritative.
+  const esNotice = ES_ON ? `
+    <div class="es-notice" lang="es" role="note">
+      <strong>${esc(es("__notice_title") || "")}</strong>
+      ${esc(es("__notice_body") || "")}
+    </div>` : "";
 
   // Compass, always show when there's any geometry OR wind data
   const hasGeometry = (v.nearest_polygon && isFinite(v.nearest_polygon.distance_mi)) || v.wind_vector;
@@ -1684,7 +1770,7 @@ function renderZoneResult(d) {
   // (distance, wind speed) is now on the SVG.
   let downwindCallout = "";
   if (v.downwind && v.downwind.triggered) {
-    downwindCallout = `<p class="downwind-callout">⚠ Wind is blowing FROM the RFW Affected Area TOWARD your address. Treat tonight as if you were inside the RFW Affected Area.</p>`;
+    downwindCallout = `<p class="downwind-callout">${bi("\u26A0 Wind is blowing FROM the RFW Affected Area TOWARD your address. Treat tonight as if you were inside the RFW Affected Area.")}</p>`;
   }
 
   // One clear action first, derived from the server's expert-vetted checklist (do_now[0]),
@@ -1701,8 +1787,8 @@ function renderZoneResult(d) {
     <div class="primary-action ${urgent ? "urgent" : ""}">
       <span class="action-icon" aria-hidden="true">${actionIcon}</span>
       <div>
-        <p class="action-label">${actionLabel}</p>
-        <p class="action-text">${esc(primaryAction)}</p>
+        <p class="action-label">${bi(actionLabel)}</p>
+        <p class="action-text">${bi(primaryAction)}</p>
       </div>
     </div>` : "";
 
@@ -1712,13 +1798,13 @@ function renderZoneResult(d) {
   // announce. (Previously started at 2, meant to "continue" from the Bottom Line callout
   // above -- but that callout only ever shows a status emoji, never a "1", so there was no
   // visible 1 anywhere on the page for this to continue from. Caught by V on the live site.)
-  const moreDo = doNow.slice(1).map((s, i) => `<li class="do step-item"><span class="step-num" aria-hidden="true">${i + 1}</span>${esc(s)}</li>`).join("");
-  const dontItems = doNot.map(s => `<li class="dont">${esc(s)}</li>`).join("");
+  const moreDo = doNow.slice(1).map((s, i) => `<li class="do step-item"><span class="step-num" aria-hidden="true">${i + 1}</span>${bi(s)}</li>`).join("");
+  const dontItems = doNot.map(s => `<li class="dont">${bi(s)}</li>`).join("");
   const moreChecklist = (moreDo || dontItems) ? `
     <details class="checklist-details"${urgent || state === "data_unavailable" ? " open" : ""}>
       <summary>What else to do${dontItems ? " · what not to do" : ""}</summary>
       ${moreDo ? `<p class="cl-head">Also do tonight</p><ul>${moreDo}</ul>` : ""}
-      ${dontItems ? `<p class="cl-head">What NOT to do</p><ul>${dontItems}</ul>` : ""}
+      ${dontItems ? `<p class="cl-head">${bi("What NOT to do")}</p><ul>${dontItems}</ul>` : ""}
     </details>` : "";
 
   const shareHeadline = urgent
@@ -1790,8 +1876,9 @@ function renderZoneResult(d) {
     <p class="small" style="margin-top:.5rem;opacity:0.85;line-height:1.5">📡 Watch for updates: if conditions change, official alerts will upgrade your area. <a href="${links.official_ac_alert_signup}" target="_blank" rel="noopener">Make sure you're signed up for local alerts.</a></p>` : "";
 
   return `
+    ${esNotice}
     <div class="situation-card state-${stateClass}${tierClass}">
-      <h2 class="verdict-title">${esc(headline)}</h2>
+      <h2 class="verdict-title">${headlineHtml}</h2>
       ${matchedAddr}
       ${freshLine}
       ${degradedCallout}
@@ -1799,7 +1886,7 @@ function renderZoneResult(d) {
       ${compass}
       ${compassLegend}
       ${geomap}
-      <p class="verdict-explanation">${esc(explanation)}</p>
+      <p class="verdict-explanation">${explanationHtml}</p>
     </div>
     ${actionHtml}
     ${moreChecklist}
