@@ -50,6 +50,18 @@ const EMAIL_PREMISE: Record<MessageBasis, string> = {
   no_address: "I'm checking in on people tonight about fire weather. I wanted to check on you.",
 };
 
+// "No evacuation is required right now" is a claim about their address, so it can
+// only ride along with a premise that confirmed something there. Pairing it with
+// "I couldn't verify" would reassure on exactly the outage path the fail-safe above
+// exists to protect. This endpoint never checks evacuation orders — an RFW is not
+// one — so the sentence stays only where the existing in-zone copy already had it.
+const EMAIL_CLOSER: Record<MessageBasis, string> = {
+  in_zone: "No evacuation is required right now. Just preparing in case.",
+  outside_zone: "Just preparing in case.",
+  unverified: "Just preparing in case.",
+  no_address: "Just preparing in case.",
+};
+
 function buildIcs(opts: {
   uid: string;
   startUtc: Date;
@@ -136,7 +148,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const emailSubject =
     basis === "in_zone" ? `Quick check tonight: Red Flag Warning` : `Quick check tonight: fire weather`;
-  const emailBody = `Hey ${name},\n\n${EMAIL_PREMISE[basis]} A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\nNo evacuation is required right now. Just preparing in case.\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
+  const emailBody = `Hey ${name},\n\n${EMAIL_PREMISE[basis]} A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\n${EMAIL_CLOSER[basis]}\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
   const mailtoLink = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   const ics = buildIcs({

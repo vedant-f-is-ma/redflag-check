@@ -459,6 +459,7 @@ describe("buddy-template", () => {
     expect(d.sms_text).toContain("red flag warning tonight in your area");
     expect(d.email_subject).toBe("Quick check tonight: Red Flag Warning");
     expect(d.email_body).toContain("There's a Red Flag Warning in your area tonight");
+    expect(d.email_body).toContain("No evacuation is required right now");
     expect(d.ics_content).toContain("Red Flag Warning");
   });
 
@@ -478,6 +479,8 @@ describe("buddy-template", () => {
     expect(d.sms_text).toContain("couldn't verify");
     expect(d.sms_text).not.toContain("warning tonight in your area");
     expect(d.sms_text).not.toContain("isn't in an active red flag warning area");
+    // Reassurance about their address cannot ride along with "I couldn't verify".
+    expect(d.email_body).not.toContain("No evacuation is required");
   });
 
   test("no address: the premise is the sender's reason, not a claim about their area", async () => {
