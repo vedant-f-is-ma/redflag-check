@@ -446,6 +446,63 @@ describe("buddy-template", () => {
     const d = await (await buddyTemplate(req("/api/v1/buddy-template?friend_lat=abc&friend_lng=def"))).json();
     expect(d.friend_zone_status).toBeNull();
   });
+
+  // The message copy must match what we actually verified about the friend's
+  // address. Asserting a warning we did not confirm is the failure mode here:
+  // it burns the credibility the check-in depends on.
+  const COORDS = "friend_lat=37.8&friend_lng=-122.18";
+  const IN_ZONE_ALERTS = { features: [{ id: "a", properties: { event: "Red Flag Warning", areaDesc: "X" } }] };
+
+  test("in zone: the message asserts the warning", async () => {
+    routeFetch({ "alerts/active": IN_ZONE_ALERTS });
+    const d = await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json();
+    expect(d.sms_text).toContain("red flag warning tonight in your area");
+    expect(d.email_subject).toBe("Quick check tonight: Red Flag Warning");
+    expect(d.email_body).toContain("There's a Red Flag Warning in your area tonight");
+    expect(d.ics_content).toContain("Red Flag Warning");
+  });
+
+  test("outside the zone: the message never claims a warning at their address", async () => {
+    routeFetch({ "alerts/active": { features: [] } });
+    const d = await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json();
+    expect(d.friend_zone_status.in_red_flag_zone).toBe(false);
+    expect(d.sms_text).not.toContain("warning tonight in your area");
+    expect(d.sms_text).toContain("isn't in an active red flag warning area");
+    expect(d.email_subject).toBe("Quick check tonight: fire weather");
+    expect(d.email_body).not.toContain("There's a Red Flag Warning in your area");
+  });
+
+  test("NWS outage: the message asserts neither a warning nor safety", async () => {
+    routeFetch({ "alerts/active": "ERR" });
+    const d = await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json();
+    expect(d.sms_text).toContain("couldn't verify");
+    expect(d.sms_text).not.toContain("warning tonight in your area");
+    expect(d.sms_text).not.toContain("isn't in an active red flag warning area");
+  });
+
+  test("no address: the premise is the sender's reason, not a claim about their area", async () => {
+    const d = await (await buddyTemplate(req("/api/v1/buddy-template?name=Jo"))).json();
+    expect(d.sms_text).toContain("checking in tonight about fire weather");
+    expect(d.sms_text).not.toContain("in your area");
+  });
+
+  test("every variant keeps the prep questions and the reply protocol", async () => {
+    const variants: string[] = [];
+    routeFetch({ "alerts/active": IN_ZONE_ALERTS });
+    variants.push(await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json());
+    routeFetch({ "alerts/active": { features: [] } });
+    variants.push(await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json());
+    routeFetch({ "alerts/active": "ERR" });
+    variants.push(await (await buddyTemplate(req(`/api/v1/buddy-template?name=Jo&${COORDS}`))).json());
+    variants.push(await (await buddyTemplate(req("/api/v1/buddy-template?name=Jo"))).json());
+    for (const d of variants as any[]) {
+      expect(d.sms_text).toContain("phone charged + car keys near the door");
+      expect(d.sms_text).toContain("Reply 1 = OK, 2 = call me.");
+      // GSM-7 only: a smart quote or em dash halves the SMS segment length.
+      expect(d.sms_text).toMatch(/^[\x20-\x7E]+$/);
+      expect(d.email_body).toContain("Go-bag ready");
+    }
+  });
 });
 
 describe("welcome + health", () => {

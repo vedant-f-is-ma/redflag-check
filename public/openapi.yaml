@@ -242,6 +242,11 @@ paths:
         reminder, and (if `friend_lat`/`friend_lng` are provided) the friend's current
         Red Flag zone status. Built for mutual-aid networks, community organizers, school
         PTAs, and anyone who wants to programmatically generate buddy-check messages.
+
+        The message wording follows the zone status: it claims a Red Flag Warning at the
+        friend's address only when one was confirmed there, and it claims no warning only
+        when NWS was actually reached. Without `friend_lat`/`friend_lng` nothing is claimed
+        about their area either way. All variants ask the same prep questions.
       parameters:
         - name: name
           in: query
@@ -570,7 +575,14 @@ components:
         name:                { type: string }
         reminder_start_iso:  { type: string, format: date-time }
         reminder_end_iso:    { type: string, format: date-time }
-        sms_text:            { type: string }
+        sms_text:
+          type: string
+          description: >
+            Ready-to-send check-in text. The opening premise reflects what was actually
+            verified about the friend's address: it asserts a Red Flag Warning only when
+            friend_zone_status.in_red_flag_zone is true, and never asserts safety when the
+            lookup was skipped or NWS was unreachable. The prep questions and the
+            "1 = OK, 2 = call me" reply protocol are identical in every variant.
         sms_link:
           type: string
           description: "sms: URL pre-filled with body. Opens in default messaging app."
