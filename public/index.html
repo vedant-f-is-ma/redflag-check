@@ -946,7 +946,7 @@
 </div>
 
 <script type="module">
-import { esc, geoMapSVG, mapOverlay, demoVerdict } from "./lib.js";
+import { esc, geoMapSVG, mapOverlay, demoVerdict, buddyBannerState } from "./lib.js";
 import { es, esExplanation } from "./i18n-es.js";
 
 // ── Spanish layer (v1, AI-drafted, human review pending) ────────────────────
@@ -2129,9 +2129,12 @@ $("#buddy-btn").addEventListener("click", async () => {
       return;
     }
     const data = await r.json();
-    out.innerHTML = renderBuddyResult(data);
+    out.innerHTML = renderBuddyResult(data, !!addr);
     track("buddy_created", {
       had_address: !!addr,
+      // Distinguishes a geocode failure from "no address typed" in analytics —
+      // both report friend_in_zone: null.
+      address_lookup_failed: !!addr && !data.friend_zone_status,
       friend_in_zone: data.friend_zone_status?.in_red_flag_zone ?? null,
     });
   } catch {
@@ -2140,18 +2143,18 @@ $("#buddy-btn").addEventListener("click", async () => {
   }
 });
 
-function renderBuddyResult(d) {
-  const fz = d.friend_zone_status;
-  // Order matters: check data_unavailable BEFORE in_red_flag_zone — a failed NWS
-  // fetch reports in_red_flag_zone: null, which must not fall into the reassuring
-  // "outside the affected area" branch.
-  const zoneNote = fz
-    ? (fz.data_unavailable
-        ? `<div class="verdict data-unavailable"><h2>⚠️ Couldn't verify your friend's zone right now.</h2><p>Live NWS warning data is unreachable. Assume warning conditions at their address and send the check-in anyway.</p></div>`
-        : fz.in_red_flag_zone
-        ? `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`
-        : `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`)
-    : `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`;
+// addressEntered distinguishes "no address given" from "address given, geocode
+// failed" — the buddy flow drops friend_lat/lng in both cases. Branch selection
+// lives in lib.js so its ordering is testable.
+function renderBuddyResult(d, addressEntered) {
+  const BUDDY_BANNERS = {
+    unverified: `<div class="verdict data-unavailable"><h2>⚠️ Couldn't verify your friend's zone right now.</h2><p>Live NWS warning data is unreachable. Assume warning conditions at their address and send the check-in anyway.</p></div>`,
+    in_zone: `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`,
+    outside: `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`,
+    lookup_failed: `<div class="verdict data-unavailable"><h2>⚠️ We couldn't look up that address.</h2><p>It didn't resolve to a location, so their zone was never checked — this is not a result either way. Check it for typos and try again. The check-in below claims nothing about their area, so it's still fine to send.</p></div>`,
+    no_address: `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`,
+  };
+  const zoneNote = BUDDY_BANNERS[buddyBannerState(d.friend_zone_status, addressEntered)];
   return `
     ${zoneNote}
     <div class="card">

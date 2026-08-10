@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { esc, niceMiles, geoMapSVG, mapOverlay, demoRing, demoVerdict } from "../public/lib.js";
+import { esc, niceMiles, geoMapSVG, mapOverlay, demoRing, demoVerdict, buddyBannerState } from "../public/lib.js";
 
 const STATES = ["in_zone", "downwind_threat", "adjacent", "safe_tonight"];
 
@@ -137,5 +137,34 @@ describe("mapOverlay", () => {
   test("empty for bad input or no wind/fire", () => {
     expect(mapOverlay(null, verdict, "close")).toBe("");
     expect(mapOverlay([320, 210], { wind_vector: null, nearest_polygon: null }, "close")).toBe("");
+  });
+});
+
+describe("buddyBannerState", () => {
+  test("reports the zone when NWS answered", () => {
+    expect(buddyBannerState({ in_red_flag_zone: true, data_unavailable: false }, true)).toBe("in_zone");
+    expect(buddyBannerState({ in_red_flag_zone: false, data_unavailable: false }, true)).toBe("outside");
+  });
+
+  test("an NWS outage is 'unverified', never the reassuring 'outside' branch", () => {
+    // in_red_flag_zone is null here; anything that tests it before
+    // data_unavailable lands on "outside" and tells the sender their friend is
+    // clear of a warning nobody managed to look up.
+    expect(buddyBannerState({ in_red_flag_zone: null, data_unavailable: true }, true)).toBe("unverified");
+  });
+
+  test("an address that failed to geocode is not reported as 'no address given'", () => {
+    expect(buddyBannerState(null, true)).toBe("lookup_failed");
+    expect(buddyBannerState(undefined, true)).toBe("lookup_failed");
+  });
+
+  test("no address entered keeps the neutral prompt", () => {
+    expect(buddyBannerState(null, false)).toBe("no_address");
+  });
+
+  test("no state claims a zone result unless one was actually returned", () => {
+    for (const entered of [true, false]) {
+      expect(["lookup_failed", "no_address"]).toContain(buddyBannerState(null, entered));
+    }
   });
 });
