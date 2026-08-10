@@ -14,6 +14,54 @@ function escapeIcs(text: string): string {
   return text.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 }
 
+// The message copy must never assert a Red Flag Warning at the friend's address
+// that we have not verified. Four states, and the ordering matters: a failed NWS
+// fetch reports in_red_flag_zone: null, so `unverified` must be decided BEFORE
+// the truthiness of in_red_flag_zone, or an outage silently produces the
+// reassuring "you're outside the warning area" wording. Same trap the client
+// guards against in renderBuddyResult().
+type MessageBasis = "in_zone" | "outside_zone" | "unverified" | "no_address";
+
+function messageBasis(fz: { in_red_flag_zone: boolean | null; data_unavailable: boolean } | null): MessageBasis {
+  if (!fz) return "no_address";
+  if (fz.data_unavailable) return "unverified";
+  return fz.in_red_flag_zone ? "in_zone" : "outside_zone";
+}
+
+// Only the opening premise varies. Every variant keeps the prep questions and the
+// "1 = OK, 2 = call me" protocol: the UI caption hardcodes that protocol, and the
+// product's position is that being outside the boundary still warrants the check-in.
+// ASCII only — a smart quote or em dash forces UCS-2 and halves the SMS segment.
+const SMS_PREMISE: Record<MessageBasis, string> = {
+  in_zone: "red flag warning tonight in your area. Checking in.",
+  outside_zone:
+    "I checked and your address isn't in an active red flag warning area tonight. Wind-driven fires don't stop at that boundary, so I'm still checking in.",
+  unverified:
+    "I couldn't verify the red flag warning status for your address tonight, so I'm checking in anyway.",
+  no_address: "checking in tonight about fire weather.",
+};
+
+const EMAIL_PREMISE: Record<MessageBasis, string> = {
+  in_zone: "There's a Red Flag Warning in your area tonight. I wanted to check on you.",
+  outside_zone:
+    "I checked your address against the active Red Flag Warning areas and it isn't inside one tonight. Wind-driven fires don't stop at those boundaries, so I still wanted to check on you.",
+  unverified:
+    "I couldn't verify tonight's Red Flag Warning status for your address, so I'd rather ask than assume. I wanted to check on you.",
+  no_address: "I'm checking in on people tonight about fire weather. I wanted to check on you.",
+};
+
+// "No evacuation is required right now" is a claim about their address, so it can
+// only ride along with a premise that confirmed something there. Pairing it with
+// "I couldn't verify" would reassure on exactly the outage path the fail-safe above
+// exists to protect. This endpoint never checks evacuation orders — an RFW is not
+// one — so the sentence stays only where the existing in-zone copy already had it.
+const EMAIL_CLOSER: Record<MessageBasis, string> = {
+  in_zone: "No evacuation is required right now. Just preparing in case.",
+  outside_zone: "Just preparing in case.",
+  unverified: "Just preparing in case.",
+  no_address: "Just preparing in case.",
+};
+
 function buildIcs(opts: {
   uid: string;
   startUtc: Date;
@@ -93,18 +141,21 @@ export default async function handler(req: Request): Promise<Response> {
     }
   }
 
-  const smsText = `Hey ${name}, red flag warning tonight in your area. Checking in. Are you set with phone charged + car keys near the door? Reply 1 = OK, 2 = call me.`;
+  const basis = messageBasis(friendZoneStatus);
+
+  const smsText = `Hey ${name}, ${SMS_PREMISE[basis]} Are you set with phone charged + car keys near the door? Reply 1 = OK, 2 = call me.`;
   const smsLink = `sms:&body=${encodeURIComponent(smsText)}`;
 
-  const emailSubject = `Quick check tonight: Red Flag Warning`;
-  const emailBody = `Hey ${name},\n\nThere's a Red Flag Warning in your area tonight. I wanted to check on you. A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\nNo evacuation is required right now. Just preparing in case.\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
+  const emailSubject =
+    basis === "in_zone" ? `Quick check tonight: Red Flag Warning` : `Quick check tonight: fire weather`;
+  const emailBody = `Hey ${name},\n\n${EMAIL_PREMISE[basis]} A few things to verify before bed:\n\n1. Phone charged and bring it to bed with sound on?\n2. Car keys near the door, gas tank above half?\n3. Go-bag ready (meds, IDs, phone charger, water, shoes)?\n4. Pets / family ready to move if needed?\n\n${EMAIL_CLOSER[basis]}\n\nReply when you can. If you want me to come by, just say.\n\nTalk soon.`;
   const mailtoLink = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   const ics = buildIcs({
     uid: `buddy-${Date.now()}@redflag-check.info`,
     startUtc,
     endUtc,
-    summary: `Text-check ${name} (Red Flag Warning)`,
+    summary: `Text-check ${name} (${basis === "in_zone" ? "Red Flag Warning" : "fire weather"})`,
     description: `${smsText}\n\nFriend zone lookup: ${friendZoneStatus?.genasys_evacuation_zone_lookup ?? "(provide friend_lat/friend_lng for direct link)"}`,
   });
   const icsFilename = `redflag-buddy-${name.toLowerCase().replace(/\s+/g, "-")}.ics`;

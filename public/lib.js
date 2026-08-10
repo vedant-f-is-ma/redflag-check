@@ -311,3 +311,22 @@ export function demoVerdict(state) {
     },
   };
 }
+
+// Which banner the buddy-check result shows. Pure so the branch ORDER stays
+// under test — two ways to get this wrong, both of which reassure the sender
+// about an address nobody actually checked:
+//
+//   1. A failed NWS fetch reports in_red_flag_zone: null. Testing that field's
+//      truthiness before data_unavailable drops an outage into the calm
+//      "outside the affected area" branch (cf. 91fc5a0).
+//   2. The buddy flow silently omits friend_lat/lng when geocoding fails, so a
+//      typo'd address arrives here indistinguishable from no address at all.
+//      "You can add an address for a zone check" is wrong there — the sender
+//      did add one, and it did not resolve.
+export function buddyBannerState(friendZoneStatus, addressEntered) {
+  if (friendZoneStatus) {
+    if (friendZoneStatus.data_unavailable) return "unverified";
+    return friendZoneStatus.in_red_flag_zone ? "in_zone" : "outside";
+  }
+  return addressEntered ? "lookup_failed" : "no_address";
+}
