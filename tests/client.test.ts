@@ -168,3 +168,22 @@ describe("buddyBannerState", () => {
     }
   });
 });
+
+// renderBuddyResult looks its banner up by the key buddyBannerState returns, so a
+// typo on either side renders a literal "undefined" where a warning belongs. The
+// in_zone banner is the one that matters most and the one a unit test of the
+// selector alone would not catch.
+test("every banner state buddyBannerState can return exists in index.html", async () => {
+  const html = await Bun.file(new URL("../public/index.html", import.meta.url)).text();
+  const literal = html.match(/const BUDDY_BANNERS = \{[\s\S]*?\n  \};/)?.[0];
+  expect(literal).toBeTruthy();
+  const states = [
+    buddyBannerState({ in_red_flag_zone: true, data_unavailable: false }, true),
+    buddyBannerState({ in_red_flag_zone: false, data_unavailable: false }, true),
+    buddyBannerState({ in_red_flag_zone: null, data_unavailable: true }, true),
+    buddyBannerState(null, true),
+    buddyBannerState(null, false),
+  ];
+  expect(new Set(states).size).toBe(5); // no two inputs collapse to the same banner
+  for (const s of states) expect(literal).toContain(`\n    ${s}: \``);
+});
