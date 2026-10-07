@@ -925,7 +925,7 @@
   </main>
 
   <footer>
-    Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning.<br>
+    Built by a Fremont high schooler in 48 hours during the 6/10–11 Red Flag Warning. <a href="https://x.com/vedfisma" rel="me noopener">@vedfisma</a><br>
     For developers: <a href="/docs">API docs</a> · <a href="/openapi.yaml">OpenAPI spec</a> · <a href="https://github.com/vedant-f-is-ma/redflag-check">GitHub</a><br>
     For official emergency alerts, sign up for <a href="https://www.ready.gov/alerts">your local emergency alerts</a>. In case of fire, call 911.<br>
     <span style="font-size:.78rem;opacity:.8;">This app is for information only during Red Flag Warnings. Refer to AC Alerts, Genasys Protect notifications, and other official sources of information during active emergencies. See the full <a href="/terms">Terms of Use &amp; Disclaimer</a>.</span>
@@ -1267,13 +1267,31 @@ $("#check-btn").addEventListener("click", () => {
     track("autocomplete_selected", {});
     runZoneCheck(`lat=${s.lat.toFixed(6)}&lng=${s.lng.toFixed(6)}`, s.formatted);
   }
+  // Bias suggestions toward wherever this browser last checked, so partial queries
+  // ("123 Main St") rank near the user instead of near a hard-coded region. Absent or
+  // unreadable storage simply means no bias.
+  function biasParams() {
+    try {
+      const s = JSON.parse(localStorage.getItem("rfc_last_loc") || "null");
+      if (s && Number.isFinite(s.lat) && Number.isFinite(s.lng)) {
+        return `&lat=${s.lat.toFixed(4)}&lng=${s.lng.toFixed(4)}`;
+      }
+    } catch (e) {}
+    return "";
+  }
   async function suggest(q) {
     try {
-      const r = await fetch(`${API}/api/v1/autocomplete?text=${encodeURIComponent(q)}`);
+      const r = await fetch(`${API}/api/v1/autocomplete?text=${encodeURIComponent(q)}${biasParams()}`);
       if (!r.ok) { close(); return; }
       const d = await r.json();
       if (input.value.trim() !== q) return;        // stale response
-      items = (d.suggestions || []).slice(0, 5); active = -1; paint();
+      items = (d.suggestions || []).slice(0, 5);
+      // Highlight the top match so Enter has a VISIBLE target. Previously active stayed
+      // -1, so Enter fell through to the "no selection" branch, threw the suggestions
+      // away and re-geocoded the raw typed string — a different, often failing lookup
+      // than the row the user was looking at.
+      active = items.length ? 0 : -1;
+      paint();
     } catch (e) { close(); }
   }
   input.addEventListener("input", () => {
@@ -1839,17 +1857,28 @@ function renderZoneResult(d) {
   if (fc) {
     const fuel = fc.fuel_type;
     const risk = fc.risk_forecast;
-    const fuelLine = fuel && fuel.fbfm40_code !== null
-      ? `${esc(fuel.description || `Code ${fuel.fbfm40_code}`)}${fuel.fire_behavior ? ` · ${esc(fuel.fire_behavior.toLowerCase())}` : ""}`
-      : "No fuel data for this location";
-    // risk is null when the ELMFIRE request failed — say so instead of the reassuring
-    // "no modeled fire spread" (which is reserved for a successful zero result).
-    const riskClass = risk ? (risk.is_active ? "fc-active" : "fc-safe") : "";
-    const riskLine = !risk
-      ? "ELMFIRE model unreachable right now — no spread data available"
-      : risk.is_active
-      ? `ELMFIRE model shows fire spread risk · ${risk.max_impacted_structures} structures in potential impact zone`
-      : "ELMFIRE model: no modeled fire spread at this location today";
+    // Statuses, not truthiness. "Couldn't check", "doesn't cover you" and "no reading
+    // at this pixel" each say something different from a measured zero, and only the
+    // measured zero is allowed to sound like an all-clear.
+    const fuelLine =
+      fc.fuel_status === "ok" && fuel && fuel.fbfm40_code !== null
+        ? `${esc(fuel.description || `Code ${fuel.fbfm40_code}`)}${fuel.fire_behavior ? ` · ${esc(fuel.fire_behavior.toLowerCase())}` : ""}`
+      : fc.fuel_status === "unavailable"
+        ? "Fuel map unreachable right now"
+      : fc.fuel_status === "out_of_coverage"
+        ? "Fuel map doesn't cover this location"
+        : "No fuel reading for this location";
+    const riskOk = fc.risk_status === "ok" && risk;
+    const riskClass = riskOk ? (risk.is_active ? "fc-active" : "fc-safe") : "";
+    const riskLine = riskOk
+      ? (risk.is_active
+          ? `ELMFIRE model shows fire spread risk · ${risk.max_impacted_structures} structures in potential impact zone`
+          : "ELMFIRE model: no modeled fire spread at this location today")
+      : fc.risk_status === "out_of_coverage"
+        ? "ELMFIRE spread model doesn't run here — it currently covers the western U.S. only. This is not an all-clear."
+      : fc.risk_status === "no_data_here"
+        ? "ELMFIRE model returned no reading for this location. This is not an all-clear."
+        : "ELMFIRE model unreachable right now — no spread data available";
     fireContextHtml = `
     <div class="card fire-context-card">
       <h3>Background fire data</h3>

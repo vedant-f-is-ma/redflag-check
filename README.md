@@ -61,4 +61,4 @@ The authoritative version is the [Terms of Use & Disclaimer](https://redflag-che
 
 ## Contact
 
-Vedant Thakker · `vedant28t [at] gmail [dot] com`
+Vedant Thakker · `vedant28t [at] gmail [dot] com` · [@vedfisma](https://x.com/vedfisma)
