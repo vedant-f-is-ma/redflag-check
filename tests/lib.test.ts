@@ -308,9 +308,22 @@ describe("FBFM40 fuel-code mapping vs Scott & Burgan GTR-RMRS-153", () => {
     expect(await fuelFor(195)).toBe("Fuel model 195");
   });
 
-  test("codes outside the standard set fall through honestly", async () => {
-    expect(await fuelFor(250)).toBe("Fuel model 250");
-    expect(await fuelFor(170)).toBe("Fuel model 170"); // TU custom block, sub-numbering undefined
+  // Two tiers, and the difference matters. A code INSIDE the standard's reserved
+  // blocks but without a defined sub-number is a real reading we can't fully name —
+  // "Fuel model N" is honest. A code OUTSIDE the domain altogether is not a fuel
+  // reading at all, and labelling it "Fuel model N" would invent one.
+  test("in-domain codes without a defined sub-number fall through honestly", async () => {
+    expect(await fuelFor(170)).toBe("Fuel model 170"); // TU custom block
+    expect(await fuelFor(195)).toBe("Fuel model 195"); // TL custom block
+  });
+
+  test("codes outside the FBFM40 domain yield no reading at all", async () => {
+    // Domain is NB 91-99 plus the numbered blocks 101-204 (GTR-RMRS-153). Everything
+    // here is off it: a gap value, a zero-filled pixel, and an out-of-range code.
+    expect(await fuelFor(250)).toBeNull();
+    expect(await fuelFor(100)).toBeNull();
+    expect(await fuelFor(90)).toBeNull();
+    expect(await fuelFor(0)).toBeNull();
   });
 });
 
@@ -406,9 +419,52 @@ describe("wgs84ToEPSG3310", () => {
 describe("fetchPyrecastData", () => {
   afterEach(() => { globalThis.fetch = realFetch; });
 
-  test("returns null outside coverage area", async () => {
-    expect(await fetchPyrecastData(48.0, -122.0)).toBeNull();  // too far north
-    expect(await fetchPyrecastData(37.8, -75.0)).toBeNull();   // East Coast
+  const SVC_EXC =
+    `<?xml version="1.0" encoding="UTF-8"?><ServiceExceptionReport version="1.3.0">` +
+    `<ServiceException code="LayerNotDefined" locator="layers">Could not find layer` +
+    `</ServiceException></ServiceExceptionReport>`;
+
+  test("returns null only outside BOTH layer extents", async () => {
+    // Genuinely off both rasters. Note 48N/-122 (Washington) and 37.8/-75 (Delmarva)
+    // are deliberately NOT here: both sit inside the CONUS fuel extent, and the old
+    // single guard wrongly rejected them.
+    expect(await fetchPyrecastData(10.0, -80.0)).toBeNull();    // Panama
+    expect(await fetchPyrecastData(60.0, -100.0)).toBeNull();   // northern Canada
+    expect(await fetchPyrecastData(40.0, 5.0)).toBeNull();      // Mediterranean
+  });
+
+  test("fuel extent boundaries (declared layer bbox) are inclusive", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; return new Response("GRAY_INDEX = 186.0\n", { status: 200 }); }) as any;
+    // Just inside each declared edge -> a lookup is attempted.
+    expect(await fetchPyrecastData(22.43, -100.0)).not.toBeNull();   // S edge
+    expect(await fetchPyrecastData(52.48, -100.0)).not.toBeNull();   // N edge
+    expect(await fetchPyrecastData(40.0, -128.38)).not.toBeNull();   // W edge
+    expect(await fetchPyrecastData(40.0, -64.06)).not.toBeNull();    // E edge
+    expect(calls).toBeGreaterThan(0);
+    // Just outside -> no request at all.
+    calls = 0;
+    expect(await fetchPyrecastData(22.41, -100.0)).toBeNull();
+    expect(await fetchPyrecastData(52.50, -100.0)).toBeNull();
+    expect(await fetchPyrecastData(40.0, -128.40)).toBeNull();
+    expect(await fetchPyrecastData(40.0, -64.04)).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  test("Texas: fuel resolves, ELMFIRE is reported out of coverage — never as an all-clear", async () => {
+    let riskCalls = 0;
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (!url.includes("fbfm40")) { riskCalls++; }
+      return new Response("Results for FeatureType 'fbfm40':\nGRAY_INDEX = 186.0\n", { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(30.20, -98.55);   // TX Hill Country
+    expect(d).not.toBeNull();
+    expect(d!.fuel_status).toBe("ok");
+    expect(d!.fuel_type.description).toBe("Timber Litter (TL6)");
+    expect(d!.risk_status).toBe("out_of_coverage");
+    expect(d!.risk_forecast).toBeNull();
+    expect(riskCalls).toBe(0);                          // no pointless request off-domain
   });
 
   test("parses fuel type and risk from WMS responses", async () => {
@@ -423,8 +479,10 @@ describe("fetchPyrecastData", () => {
     expect(d).not.toBeNull();
     expect(d!.fuel_type.fbfm40_code).toBe(186);
     expect(d!.fuel_type.description).toBe("Timber Litter (TL6)");
-    expect(d!.risk_forecast.max_impacted_structures).toBe(0);
-    expect(d!.risk_forecast.is_active).toBe(false);
+    expect(d!.fuel_status).toBe("ok");
+    expect(d!.risk_status).toBe("ok");
+    expect(d!.risk_forecast!.max_impacted_structures).toBe(0);
+    expect(d!.risk_forecast!.is_active).toBe(false);
   });
 
   test("is_active true when any time step > 0", async () => {
@@ -436,8 +494,8 @@ describe("fetchPyrecastData", () => {
       return new Response(body, { status: 200 });
     }) as any;
     const d = await fetchPyrecastData(37.85, -122.2);
-    expect(d!.risk_forecast.is_active).toBe(true);
-    expect(d!.risk_forecast.max_impacted_structures).toBe(47);
+    expect(d!.risk_forecast!.is_active).toBe(true);
+    expect(d!.risk_forecast!.max_impacted_structures).toBe(47);
     expect(d!.fuel_type.description).toBe("Shrub (SH1)");
   });
 
@@ -447,9 +505,6 @@ describe("fetchPyrecastData", () => {
   });
 
   test("failed risk request yields risk_forecast null, NOT 'no modeled fire spread'", async () => {
-    // Fuel succeeds, ELMFIRE risk 500s. The old shape reported max_impacted_structures: 0
-    // / is_active: false here, which the UI rendered as a reassuring "no modeled fire
-    // spread at this location today" — a silent failure masquerading as an all-clear.
     globalThis.fetch = (async (input: any) => {
       const url: string = typeof input === "string" ? input : input.url;
       if (url.includes("fbfm40")) return new Response("GRAY_INDEX = 141.0\n", { status: 200 });
@@ -459,6 +514,72 @@ describe("fetchPyrecastData", () => {
     expect(d).not.toBeNull();
     expect(d!.fuel_type.description).toBe("Shrub (SH1)");
     expect(d!.risk_forecast).toBeNull();
+    expect(d!.risk_status).toBe("unavailable");
+  });
+
+  // REGRESSION — this is the bug that shipped. GeoServer answers a missing layer with
+  // HTTP *200* and a ServiceExceptionReport body, so res.ok was true, zero GRAY_INDEX
+  // values parsed out, max stayed 0, and the UI rendered "no modeled fire spread at
+  // this location today". A broken request read as an all-clear.
+  test("HTTP 200 ServiceException is a failure, not a zero reading", async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (url.includes("fbfm40")) return new Response("GRAY_INDEX = 141.0\n", { status: 200 });
+      return new Response(SVC_EXC, { status: 200, headers: { "content-type": "text/xml" } });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d!.risk_status).toBe("unavailable");
+    expect(d!.risk_forecast).toBeNull();
+  });
+
+  test("falls back to the previous run when the newest workspace is missing", async () => {
+    const seen: string[] = [];
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (url.includes("fbfm40")) return new Response("GRAY_INDEX = 141.0\n", { status: 200 });
+      const run = decodeURIComponent(url).match(/fire-risk-forecast_all_(\d{8}_\d{2})/)![1];
+      seen.push(run);
+      if (seen.length === 1) return new Response(SVC_EXC, { status: 200 });
+      return new Response("GRAY_INDEX = 12.0\n", { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(seen.length).toBe(2);
+    expect(seen.every((r) => r.endsWith("_00"))).toBe(true);   // never _12: no such run exists
+    // Order is load-bearing: the newest published run lags well past 24h, so yesterday
+    // is tried FIRST and today is only the fallback. Reversing this would cost every
+    // request a wasted round-trip.
+    const [first, second] = seen;
+    expect(Number(second.slice(0, 8)) - Number(first.slice(0, 8))).toBeGreaterThan(0);
+    expect(d!.risk_status).toBe("ok");
+    expect(d!.risk_forecast!.max_impacted_structures).toBe(12);
+    expect(d!.risk_forecast!.run_date).toBe(seen[1]);
+  });
+
+  test("nodata sentinel -10000 is discarded, never read as the value 10000", async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (url.includes("fbfm40")) return new Response("GRAY_INDEX = -10000.0\n", { status: 200 });
+      return new Response("GRAY_INDEX = -10000.0\n", { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d!.fuel_type.fbfm40_code).toBeNull();
+    expect(d!.fuel_type.description).toBeNull();
+    expect(d!.fuel_status).toBe("no_data_here");
+    // No values parsed => no reading, and emphatically not "0 structures".
+    expect(d!.risk_status).toBe("no_data_here");
+    expect(d!.risk_forecast).toBeNull();
+  });
+
+  test("a code outside the FBFM40 domain is not dressed up as 'Fuel model N'", async () => {
+    globalThis.fetch = (async (input: any) => {
+      const url: string = typeof input === "string" ? input : input.url;
+      if (url.includes("fbfm40")) return new Response("GRAY_INDEX = 0.0\n", { status: 200 });
+      return new Response("GRAY_INDEX = 0.0\n", { status: 200 });
+    }) as any;
+    const d = await fetchPyrecastData(37.85, -122.2);
+    expect(d!.fuel_type.fbfm40_code).toBeNull();
+    expect(d!.fuel_type.description).toBeNull();
+    expect(d!.fuel_status).toBe("no_data_here");
   });
 
   test("handles network errors gracefully", async () => {

@@ -1195,11 +1195,53 @@ export function wgs84ToEPSG3310(lat: number, lng: number): { x: number; y: numbe
 const _PYRECAST = "https://geoserver-usw1.pyrecast.org/geoserver01/ows";
 const _PYRECAST_R = 500; // ±500m BBOX radius for point lookup
 
-// Daily ELMFIRE runs publish at 12:00 UTC; allow 6h processing before switching.
-function _latestRun(): string {
-  const now = new Date();
-  const d = now.getUTCHours() >= 18 ? now : new Date(now.getTime() - 86_400_000);
-  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}_12`;
+// ---------------------------------------------------------------------------
+// Coverage extents. The two layers do NOT cover the same ground and must not share
+// one guard. An earlier single box (lat 31-43, lng -125..-112) gated both, which is
+// why the fuel readout silently vanished in Texas — for a layer that in fact has
+// data there.
+// ---------------------------------------------------------------------------
+
+// LANDFIRE FBFM40 is CONUS-wide. These bounds are the layer's OWN declared
+// EX_GeographicBoundingBox, read from the server's WMS GetCapabilities
+// (geoserver01/fuels-and-topography_landfire-2.5.0), checked 2026-09-09:
+//   west -128.38690525209998   east -64.05405005567833
+//   south  22.428404900619462  north 52.48156003561285
+// Spot-checked against live GetFeatureInfo the same day: Texas Hill Country
+// (30.20,-98.55) -> 186 (TL6), Davis Mountains (30.60,-103.90) -> 122 (GS2), with
+// EPSG:3310 and CRS:84 requests returning identical values (so the California Albers
+// projection is still sound at Texas longitudes — theta ~12deg, no singularity).
+const _FUEL_BBOX = { minLat: 22.42, maxLat: 52.49, minLng: -128.39, maxLng: -64.05 };
+
+// The ELMFIRE risk forecast really is western-U.S. only. On a VALID run, a point
+// inside the fuel extent but outside the modelled domain (Texas Hill Country)
+// returns no GRAY_INDEX at all — indistinguishable from a nodata pixel. Verified
+// 2026-09-09 against run 20260908_00.
+const _RISK_BBOX = { minLat: 31, maxLat: 43, minLng: -125, maxLng: -112 };
+
+interface _BBox { minLat: number; maxLat: number; minLng: number; maxLng: number }
+function _inBBox(b: _BBox, lat: number, lng: number): boolean {
+  return lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
+}
+
+// ELMFIRE runs publish as workspace `fire-risk-forecast_all_<YYYYMMDD>_00`.
+//
+// ⚠ This used to build `<YYYYMMDD>_12`, on the stated assumption that runs publish at
+// 12:00 UTC. As of 2026-09-09 the server's WMS layer list carries ONLY _00 runs, and a
+// _12 request returns LayerNotDefined — so the risk half was resolving nothing. The
+// server exposes just a two-day rolling window of runs, so whether a _12 cadence ever
+// existed and was retired upstream, or was wrong from the start, is not visible from
+// here; either way the request had to change. See _readWms for why the failure was
+// invisible rather than loud.
+//
+// Publication lags the nominal 00Z run substantially: at 14:48 UTC on 2026-09-09 the
+// newest published run was still 20260908_00. Ask for yesterday's run first — inside a
+// two-day window it is the one reliably present — and fall back to today's for the
+// occasional early publish, rather than hard-coding a lag that will drift again.
+function _runCandidates(now = new Date()): string[] {
+  const stamp = (d: Date) =>
+    `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}_00`;
+  return [stamp(new Date(now.getTime() - 86_400_000)), stamp(now)];
 }
 
 function _pyrecastUrl(layer: string, x: number, y: number, featureCount: number): string {
@@ -1211,10 +1253,51 @@ function _pyrecastUrl(layer: string, x: number, y: number, featureCount: number)
     `&info_format=text/plain&FEATURE_COUNT=${featureCount}`;
 }
 
+// GRAY_INDEX values with nodata removed.
+//
+// ⚠ The `-?` is load-bearing. GeoServer emits this raster's nodata sentinel as
+// "GRAY_INDEX = -10000.0" (verified against the live fbfm40 layer over open water,
+// 2026-09-09). Without the sign the regex matched the digits AFTER the minus and read
+// nodata as the value 10000 — which _describeFBFM40 would have dressed up as "Fuel
+// model 10000", and the risk layer as "10000 structures in potential impact zone".
+// Real fuel codes and impacted-structure counts are both non-negative, so anything
+// below zero is dropped as nodata.
 function _parseGrayIndices(text: string): number[] {
-  return Array.from(text.matchAll(/GRAY_INDEX\s*=\s*([\d.]+)/g))
+  return Array.from(text.matchAll(/GRAY_INDEX\s*=\s*(-?[\d.]+)/g))
     .map((m) => parseFloat(m[1]))
-    .filter((v) => isFinite(v));
+    .filter((v) => isFinite(v) && v >= 0);
+}
+
+// A WMS point read. `ok` separates "the server answered" from "we don't know"; an
+// empty `values` on an ok read means the pixel simply carried no data.
+interface _WmsRead { ok: boolean; values: number[] }
+
+// ⚠ GeoServer reports errors as HTTP 200 with an XML ServiceExceptionReport body, so
+// `res.ok` is TRUE for a missing layer. Trusting res.ok is exactly what let the broken
+// _12 run render as "ELMFIRE model: no modeled fire spread at this location today" — a
+// fabricated all-clear, the one failure mode CLAUDE.md rules out. The exception body
+// has to be detected explicitly.
+async function _readWms(url: string): Promise<_WmsRead> {
+  try {
+    // Bounded like every other upstream. Pyrecast is not verdict-critical, so a hung
+    // connection here must never hold the whole zone-check response open.
+    const res = await fetch(url, { signal: upstreamTimeoutSignal() });
+    if (!res.ok) return { ok: false, values: [] };
+    const text = await res.text();
+    if (text.includes("ServiceException")) return { ok: false, values: [] };
+    return { ok: true, values: _parseGrayIndices(text) };
+  } catch {
+    return { ok: false, values: [] };
+  }
+}
+
+// Is this a code the FBFM40 standard actually defines a slot for? Scott & Burgan
+// (2005), GTR-RMRS-153: NB 91-99, then the numbered blocks 101-204. Values outside
+// that domain (a zero-filled pixel, an unfiltered sentinel) are not fuel readings and
+// must not reach _describeFBFM40's "Fuel model N" fallback, which exists for custom
+// models INSIDE the standard's blocks — not for junk.
+function _isFBFM40Code(code: number): boolean {
+  return (code >= 91 && code <= 99) || (code >= 101 && code <= 204);
 }
 
 // LANDFIRE FBFM40 (Scott & Burgan 40 fuel models) → human-readable description
@@ -1243,66 +1326,111 @@ function _describeFBFM40(code: number): { description: string; fire_behavior: st
   return { description: `Fuel model ${code}`, fire_behavior: "See LANDFIRE documentation" };
 }
 
+// Per-layer outcome, so the UI can tell "we couldn't check", "this layer doesn't reach
+// here" and "no reading at this pixel" apart from a genuine measured zero. Collapsing
+// any of those into each other is how a missing reading becomes a reassurance.
+export type PyrecastLayerStatus = "ok" | "no_data_here" | "out_of_coverage" | "unavailable";
+
 export interface PyrecastData {
   fuel_type: {
     fbfm40_code: number | null;
     description: string | null;
     fire_behavior: string | null;
   };
-  // null when the ELMFIRE risk request failed: "we couldn't check the model" must
-  // stay distinguishable from a successful "the model shows no fire spread here".
+  fuel_status: PyrecastLayerStatus;
+  // null unless risk_status === "ok". "We couldn't check the model" and "the model
+  // doesn't cover you" must both stay distinguishable from "the model shows no fire
+  // spread here" — only the last of those is a measurement.
   risk_forecast: {
     run_date: string;
     max_impacted_structures: number;
     is_active: boolean;
   } | null;
+  risk_status: PyrecastLayerStatus;
   source: string;
 }
 
-// Fetches background fuel type (always) and ELMFIRE 24-hour impacted-structures
-// forecast in parallel. Returns null if outside coverage area or both fetches fail.
+// Fetches background fuel type and the ELMFIRE 24-hour impacted-structures forecast in
+// parallel, each gated by its OWN coverage extent. Returns null only when there is
+// nothing to say: outside both extents, or nothing came back from either layer.
 export async function fetchPyrecastData(lat: number, lng: number): Promise<PyrecastData | null> {
-  if (lat < 31 || lat > 43 || lng < -125 || lng > -112) return null;
-  const { x, y } = wgs84ToEPSG3310(lat, lng);
-  const runDate = _latestRun();
+  const fuelInRange = _inBBox(_FUEL_BBOX, lat, lng);
+  const riskInRange = _inBBox(_RISK_BBOX, lat, lng);
+  if (!fuelInRange && !riskInRange) return null;
 
-  const [fuelRes, riskRes] = await Promise.allSettled([
-    fetch(_pyrecastUrl("fuels-and-topography_landfire-2.5.0:fbfm40", x, y, 1)),
-    fetch(_pyrecastUrl(`fire-risk-forecast_all_${runDate}:elmfire_landfire_impacted-structures`, x, y, 24)),
-  ]);
+  const { x, y } = wgs84ToEPSG3310(lat, lng);
+
+  const fuelP: Promise<_WmsRead | null> = fuelInRange
+    ? _readWms(_pyrecastUrl("fuels-and-topography_landfire-2.5.0:fbfm40", x, y, 1))
+    : Promise.resolve(null);
+
+  // Run workspaces roll over daily; try candidates in order and stop at the first one
+  // the server actually has. A LayerNotDefined means "that run isn't published", which
+  // is different from an outage — but both leave us without a reading, so both end up
+  // as `unavailable` rather than as a zero.
+  const riskP: Promise<{ read: _WmsRead; run: string } | null> = (async () => {
+    if (!riskInRange) return null;
+    let last: { read: _WmsRead; run: string } | null = null;
+    for (const run of _runCandidates()) {
+      const read = await _readWms(
+        _pyrecastUrl(`fire-risk-forecast_all_${run}:elmfire_landfire_impacted-structures`, x, y, 24)
+      );
+      last = { read, run };
+      if (read.ok) return last;
+    }
+    return last;
+  })();
+
+  const [fuelRead, riskRead] = await Promise.all([fuelP, riskP]);
 
   let fbfm40: number | null = null;
-  if (fuelRes.status === "fulfilled" && fuelRes.value.ok) {
-    const vals = _parseGrayIndices(await fuelRes.value.text());
-    if (vals.length > 0) fbfm40 = vals[0];
+  let fuelStatus: PyrecastLayerStatus;
+  if (!fuelInRange) {
+    fuelStatus = "out_of_coverage";
+  } else if (!fuelRead || !fuelRead.ok) {
+    fuelStatus = "unavailable";
+  } else {
+    const code = fuelRead.values.length > 0 ? Math.round(fuelRead.values[0]) : null;
+    if (code !== null && _isFBFM40Code(code)) { fbfm40 = code; fuelStatus = "ok"; }
+    else fuelStatus = "no_data_here";
   }
 
-  let maxImpacted = 0;
-  let riskOk = false;
-  if (riskRes.status === "fulfilled" && riskRes.value.ok) {
-    riskOk = true;
-    const vals = _parseGrayIndices(await riskRes.value.text());
-    if (vals.length > 0) maxImpacted = Math.max(...vals);
+  let riskStatus: PyrecastLayerStatus;
+  let riskForecast: PyrecastData["risk_forecast"] = null;
+  if (!riskInRange) {
+    riskStatus = "out_of_coverage";
+  } else if (!riskRead || !riskRead.read.ok) {
+    riskStatus = "unavailable";
+  } else if (riskRead.read.values.length === 0) {
+    riskStatus = "no_data_here";
+  } else {
+    const maxImpacted = Math.max(...riskRead.read.values);
+    riskStatus = "ok";
+    riskForecast = {
+      run_date: riskRead.run,
+      max_impacted_structures: Math.round(maxImpacted),
+      is_active: maxImpacted > 0,
+    };
   }
 
-  // Nothing useful if we got no fuel type and the risk request also failed
-  if (fbfm40 === null && !riskOk) return null;
+  // Nothing measured anywhere and no informative "no reading here" to show: render no
+  // card at all rather than an empty one. A PARTIAL failure still renders, labelled —
+  // an unreachable layer is worth saying out loud.
+  const informative =
+    fuelStatus === "ok" || riskStatus === "ok" ||
+    fuelStatus === "no_data_here" || riskStatus === "no_data_here";
+  if (!informative) return null;
 
-  const fuelInfo = fbfm40 !== null ? _describeFBFM40(Math.round(fbfm40)) : null;
+  const fuelInfo = fbfm40 !== null ? _describeFBFM40(fbfm40) : null;
   return {
     fuel_type: {
       fbfm40_code: fbfm40,
       description: fuelInfo?.description ?? null,
       fire_behavior: fuelInfo?.fire_behavior ?? null,
     },
-    // A failed risk request must not masquerade as "model shows no fire spread".
-    risk_forecast: riskOk
-      ? {
-          run_date: runDate,
-          max_impacted_structures: Math.round(maxImpacted),
-          is_active: maxImpacted > 0,
-        }
-      : null,
+    fuel_status: fuelStatus,
+    risk_forecast: riskForecast,
+    risk_status: riskStatus,
     source: "Pyrecast/Pyregence — ELMFIRE model, LANDFIRE 2.5.0 (open access)",
   };
 }
