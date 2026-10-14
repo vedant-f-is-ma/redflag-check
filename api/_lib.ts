@@ -436,23 +436,47 @@ export interface RedFlagPolygon {
 
 // ---------------------------------------------------------------------------
 // Zone geometry resolution — fallback when an alert has no inline polygon.
-// UGC code format: {STATE}{C|Z}{number}  C=county  Z=fire-weather zone
+// UGC code format (NWS Instruction 10-1702, "Universal Geographic Code (UGC)"):
+// {STATE}{C|Z}{number}  C=county  Z=zone. A "Z" zone may be a fire-weather zone
+// OR a public forecast zone — the two are separate NWS zone sets, and a Red Flag
+// Warning can list either (e.g. LOX has issued RFWs naming public zone CAZ088,
+// which /zones/fire/ does not know). The alert's own affectedZones links point
+// at /zones/fire/ even for such public zones, so they cannot settle the type.
 // ---------------------------------------------------------------------------
-async function fetchZoneRing(ugcCode: string): Promise<number[][] | null> {
-  const zoneType = ugcCode[2] === "C" ? "county" : "fire";
+type ZoneFetch = { status: "ok"; ring: number[][] } | { status: "not_found" } | { status: "failed" };
+
+async function fetchZoneRingFrom(zoneType: "county" | "fire" | "forecast", ugcCode: string): Promise<ZoneFetch> {
   const url = `https://api.weather.gov/zones/${zoneType}/${ugcCode}`;
   try {
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT }, signal: upstreamTimeoutSignal() });
-    if (!res.ok) return null;
+    if (res.status === 404) return { status: "not_found" };
+    if (!res.ok) return { status: "failed" };
     const data = (await res.json()) as any;
     const geom = data?.geometry;
-    if (!geom) return null;
-    if (geom.type === "Polygon") return geom.coordinates[0] ?? null;
-    if (geom.type === "MultiPolygon") return geom.coordinates[0]?.[0] ?? null;
-    return null;
+    let ring: number[][] | null = null;
+    if (geom?.type === "Polygon") ring = geom.coordinates[0] ?? null;
+    else if (geom?.type === "MultiPolygon") ring = geom.coordinates[0]?.[0] ?? null;
+    return ring ? { status: "ok", ring } : { status: "failed" };
   } catch {
-    return null;
+    return { status: "failed" };
   }
+}
+
+// "Z" codes try the fire-weather zone first, then the public forecast zone — but
+// ONLY when NWS answers 404 (no fire zone has this code). A 5xx, timeout, or a
+// fire zone with no usable geometry means the fire zone exists but could not be
+// read; substituting the same-numbered public zone there could draw the wrong
+// area and let an incomplete set pass as complete, so that stays a failure (null).
+async function fetchZoneRing(ugcCode: string): Promise<number[][] | null> {
+  if (ugcCode[2] === "C") {
+    const county = await fetchZoneRingFrom("county", ugcCode);
+    return county.status === "ok" ? county.ring : null;
+  }
+  const fire = await fetchZoneRingFrom("fire", ugcCode);
+  if (fire.status === "ok") return fire.ring;
+  if (fire.status === "failed") return null;
+  const forecast = await fetchZoneRingFrom("forecast", ugcCode);
+  return forecast.status === "ok" ? forecast.ring : null;
 }
 
 // Normalized input to buildRedFlagPolygon: an alert's metadata plus EITHER inline

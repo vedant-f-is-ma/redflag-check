@@ -17,6 +17,7 @@ function mockFetch(handler: (url: string) => any) {
     const url = typeof input === "string" ? input : input.url;
     const r = handler(url);
     if (r === "ERR") return new Response("nope", { status: 500 });
+    if (r === "404") return new Response("not found", { status: 404 });
     return new Response(JSON.stringify(r), { status: 200, headers: { "Content-Type": "application/json" } });
   }) as any;
 }
@@ -801,6 +802,95 @@ describe("fetch-backed helpers", () => {
     expect(r.ok).toBe(true);
     expect(r.complete).toBe(true);
   });
+  // A Red Flag Warning can name a PUBLIC forecast zone (LOX listed CAZ088, Santa
+  // Clarita Valley); /zones/fire/CAZ088 is a 404 there. Without the forecast-zone
+  // fallback the whole statewide set read incomplete and every out-of-zone address
+  // degraded to data_unavailable.
+  const lacAlert = { features: [
+    { id: "lox1", properties: { event: "Red Flag Warning", areaDesc: "Santa Clarita Valley", geocode: { UGC: ["CAZ088"] } }, geometry: null },
+  ]};
+  test("fetchActiveRedFlagPolygons: public-zone UGC resolves via /zones/forecast/ when the fire zone is a 404", async () => {
+    const ring = squareRing(34.4, -118.5, 0.1);
+    const urls: string[] = [];
+    mockFetch((url) => {
+      urls.push(url);
+      if (url.includes("alerts/active")) return lacAlert;
+      if (url.includes("zones/fire/CAZ088")) return "404";
+      if (url.includes("zones/forecast/CAZ088")) return { geometry: { type: "Polygon", coordinates: [ring] } };
+      return "ERR";
+    });
+    const r = await fetchActiveRedFlagPolygons("CA");
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.polygons.length).toBe(1);
+    expect(r.polygons[0].source).toBe("zone");
+    expect(r.polygons[0].rings).toEqual([ring]);
+    expect(r.complete).toBe(true);
+    // Fire zone is tried first; the forecast zone only after the 404.
+    const fireIdx = urls.findIndex((u) => u.includes("zones/fire/CAZ088"));
+    const fcIdx = urls.findIndex((u) => u.includes("zones/forecast/CAZ088"));
+    expect(fireIdx).toBeGreaterThanOrEqual(0);
+    expect(fcIdx).toBeGreaterThan(fireIdx);
+  });
+  test("fetchActiveRedFlagPolygons: fire 404 AND forecast failure keeps the set incomplete", async () => {
+    for (const forecastReply of ["ERR", "404", { geometry: null }] as any[]) {
+      mockFetch((url) => {
+        if (url.includes("alerts/active")) return lacAlert;
+        if (url.includes("zones/fire/CAZ088")) return "404";
+        if (url.includes("zones/forecast/CAZ088")) return forecastReply;
+        return "ERR";
+      });
+      const r = await fetchActiveRedFlagPolygons("CA");
+      if (!r.ok) throw new Error("unreachable");
+      expect(r.polygons).toEqual([]);
+      expect(r.complete).toBe(false);
+    }
+  });
+  test("fetchActiveRedFlagPolygons: a fire-zone 5xx or geometry-less fire zone does NOT fall back to the public zone", async () => {
+    // Only a 404 proves no fire zone has this code. Any other fire-zone failure means
+    // the fire zone exists but could not be read; a same-numbered public zone may be a
+    // different area, so substituting it could mark a wrong set complete.
+    const ring = squareRing(34.4, -118.5, 0.1);
+    for (const fireReply of ["ERR", { geometry: null }, { geometry: { type: "Point", coordinates: [0, 0] } }] as any[]) {
+      const urls: string[] = [];
+      mockFetch((url) => {
+        urls.push(url);
+        if (url.includes("alerts/active")) return lacAlert;
+        if (url.includes("zones/fire/CAZ088")) return fireReply;
+        if (url.includes("zones/forecast/CAZ088")) return { geometry: { type: "Polygon", coordinates: [ring] } };
+        return "ERR";
+      });
+      const r = await fetchActiveRedFlagPolygons("CA");
+      if (!r.ok) throw new Error("unreachable");
+      expect(r.polygons).toEqual([]);
+      expect(r.complete).toBe(false);
+      expect(urls.some((u) => u.includes("zones/forecast/"))).toBe(false);
+    }
+    // A fire-zone network throw is likewise not a 404.
+    globalThis.fetch = (async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("alerts/active")) return new Response(JSON.stringify(lacAlert), { status: 200 });
+      if (url.includes("zones/fire/")) throw new Error("net");
+      return new Response(JSON.stringify({ geometry: { type: "Polygon", coordinates: [ring] } }), { status: 200 });
+    }) as any;
+    const thrown = await fetchActiveRedFlagPolygons("CA");
+    if (!thrown.ok) throw new Error("unreachable");
+    expect(thrown.complete).toBe(false);
+  });
+  test("fetchActiveRedFlagPolygons: county (C) codes stay on /zones/county/ with no forecast fallback", async () => {
+    const urls: string[] = [];
+    mockFetch((url) => {
+      urls.push(url);
+      if (url.includes("alerts/active")) return { features: [
+        { id: "c1", properties: { event: "Red Flag Warning", areaDesc: "County", geocode: { UGC: ["CAC037"] } }, geometry: null },
+      ]};
+      return "404";
+    });
+    const r = await fetchActiveRedFlagPolygons("CA");
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.complete).toBe(false);
+    const zoneUrls = urls.filter((u) => u.includes("/zones/"));
+    expect(zoneUrls).toEqual(["https://api.weather.gov/zones/county/CAC037"]);
+  });
   test("fetchActiveRedFlagPolygons accepts a multi-state array (comma-joined area)", async () => {
     let requestedUrl = "";
     mockFetch((url) => {
@@ -833,6 +923,23 @@ describe("fetch-backed helpers", () => {
     expect(polys[0].headline).toBe("RFW Little Colorado River Valley");
     // The Winslow point falls inside the resolved zone ring.
     expect(pointInPolygon(35.0242, -110.6974, polys[0].rings[0])).toBe(true);
+  });
+  test("resolveAlertsToPolygons resolves a public-zone point alert via the forecast-zone fallback", async () => {
+    const ring = squareRing(34.4, -118.5, 0.2); // box around Santa Clarita, CA
+    mockFetch((url) => {
+      if (url.includes("zones/fire/CAZ088")) return "404";
+      if (url.includes("zones/forecast/CAZ088")) return { geometry: { type: "MultiPolygon", coordinates: [[ring]] } };
+      return "ERR";
+    });
+    const alert = {
+      id: "lox1", event: "Red Flag Warning", headline: "RFW Santa Clarita Valley",
+      description: "", instruction: null, severity: "Severe", certainty: "Likely", urgency: "Expected",
+      starts: "", ends: "", expires: "", sender_name: "NWS Los Angeles/Oxnard CA", areas: ["Santa Clarita Valley"], ugc: ["CAZ088"],
+    };
+    const polys = await resolveAlertsToPolygons([alert]);
+    expect(polys.length).toBe(1);
+    expect(polys[0].source).toBe("zone");
+    expect(pointInPolygon(34.4, -118.5, polys[0].rings[0])).toBe(true);
   });
   test("resolveAlertsToPolygons drops alerts whose zones fail to resolve / have no UGC", async () => {
     mockFetch(() => "ERR"); // every zone fetch fails
