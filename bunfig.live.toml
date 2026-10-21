@@ -1,0 +1,5 @@
+# Config for `bun run test:live` only. That run executes one test file, so the
+# 95% coverage threshold in bunfig.toml would fail it with exit code 1 even when
+# every assertion passes. The full suite (`bun test`) still enforces the threshold.
+[test]
+coverage = false

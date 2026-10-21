@@ -49,11 +49,14 @@ function decideAction(
       source: "NWS hourly forecast at campus location",
     };
   }
+  // Reached only when the campus is not in a warning and tonight's forecast is calm,
+  // so the text must not claim a warning exists. "hills" and "ridge" campuses sit in
+  // or next to wildland (see zone_class in _schools.ts); say so, never "valley floor".
   if (isHillsAdjacent) {
     return {
       level: "normal",
-      rationale: `Active Red Flag Warning in nearby hills, but this campus is on the valley floor. Normal operations advised. Monitor district communications in case conditions change.`,
-      source: "Spatial proximity analysis",
+      rationale: `No active Red Flag Warning at this campus and forecast conditions are within normal operating parameters. This campus is in or next to wildland, so monitor district communications and NWS updates in case conditions change.`,
+      source: "NWS active alerts + hourly forecast + campus terrain class",
     };
   }
   return {

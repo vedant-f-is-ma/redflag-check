@@ -233,6 +233,24 @@ describe("school-status", () => {
     expect(d.location.matched_address).toContain(SCHOOLS[0].name);
     expect(d.decision_recommendation.level).toBeDefined();
   });
+  // A hills campus on a calm night with no warning anywhere: the rationale once said
+  // "Active Red Flag Warning in nearby hills, but this campus is on the valley floor",
+  // claiming a warning that did not exist and misplacing a ridgetop school.
+  test("hills campus, no warning, calm night: no invented warning, no 'valley floor'", async () => {
+    routeFetch({
+      "alerts/active?point": EMPTY,
+      "alerts/active?area": EMPTY,
+      "/points/": NWS_POINTS,
+      "hourly-x": { properties: { periods: [{ startTime: "t", endTime: "t2", temperature: 62, windSpeed: "5 mph", windDirection: "W", relativeHumidity: { value: 55 }, shortForecast: "Clear" }] } },
+    });
+    const d = await (await schoolStatus(req("/api/v1/school-status?id=skyline-oakland"))).json();
+    expect(d.school.zone_class).toBe("hills");
+    expect(d.in_red_flag_zone).toBe(false);
+    expect(d.decision_recommendation.level).toBe("normal");
+    expect(d.decision_recommendation.rationale).toContain("No active Red Flag Warning at this campus");
+    expect(d.decision_recommendation.rationale).not.toMatch(/valley floor/i);
+    expect(d.decision_recommendation.rationale).not.toMatch(/Active Red Flag Warning in/);
+  });
   test("no id -> 400, unknown -> 404", async () => {
     expect((await schoolStatus(req("/api/v1/school-status"))).status).toBe(400);
     expect((await schoolStatus(req("/api/v1/school-status?id=nope"))).status).toBe(404);

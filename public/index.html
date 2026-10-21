@@ -2097,7 +2097,7 @@ function renderSchoolResult(d) {
     : "";
 
   const emailSubject = `Wildfire-day check: ${s.name} (${new Date().toLocaleDateString()})`;
-  const emailBody = `Sharing this single-page status check for ${s.name} during tonight's Red Flag Warning.\n\nRecommendation: ${lvlLabel}.\nRationale: ${d.decision_recommendation.rationale}\nSource: ${d.decision_recommendation.source}.\n\nFull data: ${location.origin}/api/v1/school-status?id=${s.id}\n\nThis is informational only; final decisions rest with district leadership.`;
+  const emailBody = `Sharing this single-page status check for ${s.name} ${d.in_red_flag_zone ? "during tonight's Red Flag Warning" : "for tonight"}.\n\nRecommendation: ${lvlLabel}.\nRationale: ${d.decision_recommendation.rationale}\nSource: ${d.decision_recommendation.source}.\n\nFull data: ${location.origin}/api/v1/school-status?id=${s.id}\n\nThis is informational only; final decisions rest with district leadership.`;
   const mailto = `mailto:?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
 
   // A school is a named lat/lng, show the same geo-map + wind/fire overlay as an address.
@@ -2179,7 +2179,7 @@ function renderBuddyResult(d, addressEntered) {
   const BUDDY_BANNERS = {
     unverified: `<div class="verdict data-unavailable"><h2>⚠️ Couldn't verify your friend's zone right now.</h2><p>Live NWS warning data is unreachable. Assume warning conditions at their address and send the check-in anyway.</p></div>`,
     in_zone: `<div class="verdict in-zone"><h2>⚠️ Your friend IS in the active Red Flag zone.</h2><p>Send the check-in tonight. Make sure they have phone + keys + a plan.</p></div>`,
-    outside: `<div class="verdict out-of-zone"><h2>Your friend's address is outside the active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`,
+    outside: `<div class="verdict out-of-zone"><h2>Your friend's address is not in an active RFW Affected Area.</h2><p>The check-in is still a kind move. Wind-driven fires do not respect RFW Affected Area boundaries (1991 Oakland Hills, Lahaina, Palisades), so fire-season preparedness matters regardless.</p></div>`,
     lookup_failed: `<div class="verdict data-unavailable"><h2>⚠️ We couldn't look up that address.</h2><p>It didn't resolve to a location, so their zone was never checked — this is not a result either way. Check it for typos and try again. The check-in below claims nothing about their area, so it's still fine to send.</p></div>`,
     no_address: `<div class="verdict adjacent"><h2>You can add your friend's address above for a zone check.</h2><p>The buddy template below still works without it.</p></div>`,
   };
