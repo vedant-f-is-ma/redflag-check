@@ -12,6 +12,7 @@ import {
   jsonResponse,
   errorResponse,
 } from "../_lib";
+import type { VerdictState, NearestPolygonInfo } from "../_lib";
 import { findSchool } from "../_schools";
 
 export const config = { runtime: "edge" };
@@ -26,7 +27,9 @@ function decideAction(
   maxWindMph: number,
   minHumidityPct: number | null,
   inZone: boolean,
-  isHillsAdjacent: boolean
+  isHillsAdjacent: boolean,
+  verdictState: VerdictState,
+  nearest: NearestPolygonInfo | null
 ): DecisionRec {
   if (inZone) {
     return {
@@ -49,7 +52,24 @@ function decideAction(
       source: "NWS hourly forecast at campus location",
     };
   }
-  // Reached only when the campus is not in a warning and tonight's forecast is calm,
+  // A warning near the campus (the same verdict the map shows) must be named, never
+  // replaced by "no warning" text. Only the wording follows the verdict; the level does not.
+  const near = nearest ? `about ${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass} of this campus` : "near this campus";
+  if (verdictState === "downwind_threat") {
+    return {
+      level: "normal",
+      rationale: `An active Red Flag Warning is ${near}, and tonight's wind is blowing from it toward the campus. Forecast wind and humidity at the campus are below the thresholds for modifying outdoor activity; monitor district communications and NWS updates closely.`,
+      source: "NWS Red Flag polygons + hourly forecast",
+    };
+  }
+  if (verdictState === "adjacent") {
+    return {
+      level: "normal",
+      rationale: `An active Red Flag Warning is ${near}. The campus is not inside it, and forecast wind and humidity at the campus are below the thresholds for modifying outdoor activity; monitor district communications and NWS updates closely.`,
+      source: "NWS Red Flag polygons + hourly forecast",
+    };
+  }
+  // Reached only when no warning is at or near the campus and tonight's forecast is calm,
   // so the text must not claim a warning exists. "hills" and "ridge" campuses sit in
   // or next to wildland (see zone_class in _schools.ts); say so, never "valley floor".
   if (isHillsAdjacent) {
@@ -93,8 +113,6 @@ export default async function handler(req: Request): Promise<Response> {
   const maxWind = forecast?.tonight.max_wind_mph ?? 0;
   const minHumidity = forecast?.tonight.min_humidity_pct ?? null;
 
-  let decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent);
-
   // A school is just a named lat/lng, so compute the same 5-state verdict + map the
   // address path does, the result can then show the geo-map + wind/fire overlay.
   // Pass the point-query in_zone result as the authoritative signal so the verdict
@@ -105,6 +123,8 @@ export default async function handler(req: Request): Promise<Response> {
     polygons_ok: polyRes.ok && polyRes.complete,
     forecast_ok: forecastRes.ok,
   });
+
+  let decision = decideAction(maxWind, minHumidity, inZone, isHillsAdjacent, verdict.state, verdict.nearest_polygon);
 
   // FAIL-SAFE: "normal operations" is a reassurance and must not be issued on missing
   // data — a failed warning check or wind forecast could be hiding exactly the
