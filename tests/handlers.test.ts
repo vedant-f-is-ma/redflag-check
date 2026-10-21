@@ -251,22 +251,32 @@ describe("school-status", () => {
     expect(d.decision_recommendation.rationale).not.toMatch(/valley floor/i);
     expect(d.decision_recommendation.rationale).not.toMatch(/Active Red Flag Warning in/);
   });
-  // A warning ~3.5 mi east of Skyline High. With calm-enough wind and humidity the level
-  // stays "normal", but the rationale must name the nearby warning the map is showing.
+  // A warning ~3.5 mi east of Skyline High. Even with wind and humidity under the
+  // forecast thresholds, a warning next to or upwind of a campus is never "normal":
+  // the level caps at modify_outdoor and the rationale names the warning the map shows.
   const NEAR_SKYLINE = { features: [{ id: "near", properties: { event: "Red Flag Warning", areaDesc: "Hills" }, geometry: { type: "Polygon", coordinates: [[[-122.10, 37.78], [-122.06, 37.78], [-122.06, 37.82], [-122.10, 37.82], [-122.10, 37.78]]] } }] };
   const hourly = (windSpeed: string, windDirection: string) => ({ properties: { periods: [{ startTime: "t", endTime: "t2", temperature: 70, windSpeed, windDirection, relativeHumidity: { value: 30 }, shortForecast: "Breezy" }] } });
   test("warning upwind of a campus: rationale names it and the wind toward the campus", async () => {
     routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": NEAR_SKYLINE, "/points/": NWS_POINTS, "hourly-x": hourly("20 mph", "E") });
     const d = await (await schoolStatus(req("/api/v1/school-status?id=skyline-oakland"))).json();
     expect(d.verdict.state).toBe("downwind_threat");
+    expect(d.decision_recommendation.level).toBe("modify_outdoor");
     expect(d.decision_recommendation.rationale).toContain("An active Red Flag Warning is about 3 mi E of this campus");
     expect(d.decision_recommendation.rationale).toContain("blowing from it toward the campus");
     expect(d.decision_recommendation.rationale).not.toContain("No active Red Flag Warning");
+  });
+  test("warning upwind and winds >= 35 mph: still modify_outdoor, rationale names the warning", async () => {
+    routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": NEAR_SKYLINE, "/points/": NWS_POINTS, "hourly-x": hourly("40 mph", "E") });
+    const d = await (await schoolStatus(req("/api/v1/school-status?id=skyline-oakland"))).json();
+    expect(d.verdict.state).toBe("downwind_threat");
+    expect(d.decision_recommendation.level).toBe("modify_outdoor");
+    expect(d.decision_recommendation.rationale).toContain("blowing from it toward the campus");
   });
   test("warning next to a campus, wind elsewhere: rationale names the nearby warning", async () => {
     routeFetch({ "alerts/active?point": EMPTY, "alerts/active?area": NEAR_SKYLINE, "/points/": NWS_POINTS, "hourly-x": hourly("5 mph", "W") });
     const d = await (await schoolStatus(req("/api/v1/school-status?id=skyline-oakland"))).json();
     expect(d.verdict.state).toBe("adjacent");
+    expect(d.decision_recommendation.level).toBe("modify_outdoor");
     expect(d.decision_recommendation.rationale).toContain("An active Red Flag Warning is about 3 mi E of this campus");
     expect(d.decision_recommendation.rationale).not.toContain("No active Red Flag Warning");
   });

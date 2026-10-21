@@ -564,7 +564,10 @@ components:
           description: >
             Fail-safe: "normal" is never issued while live NWS data is unreachable —
             a degraded response caps the recommendation at modify_outdoor with a
-            rationale explaining the data gap (see data_status).
+            rationale explaining the data gap (see data_status). Nor is "normal"
+            issued when an active Red Flag Warning is next to the campus or upwind
+            of it (verdict state adjacent or downwind_threat); those cap at
+            modify_outdoor with a rationale naming the warning's distance and direction.
         rationale:
           type: string
           description: Plain-English explanation citing CIF AQI thresholds and fire-weather conditions.

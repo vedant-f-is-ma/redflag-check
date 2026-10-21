@@ -38,6 +38,24 @@ function decideAction(
       source: "NWS Red Flag Warning + standard wildfire-day modification practice",
     };
   }
+  // A warning next to the campus, or upwind of it (the same verdict the map shows), is
+  // never "normal operations": degrade toward the warning and cap at modify_outdoor.
+  // Checked before the wind and humidity rules so the rationale names the warning.
+  const near = nearest ? `about ${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass} of this campus` : "near this campus";
+  if (verdictState === "downwind_threat") {
+    return {
+      level: "modify_outdoor",
+      rationale: `An active Red Flag Warning is ${near}, and tonight's wind is blowing from it toward the campus. Modify outdoor activity as you would on a warning night, and monitor district communications and NWS updates closely.`,
+      source: "NWS Red Flag polygons + hourly forecast",
+    };
+  }
+  if (verdictState === "adjacent") {
+    return {
+      level: "modify_outdoor",
+      rationale: `An active Red Flag Warning is ${near}. The campus is not inside it, but conditions can shift quickly that close to a warning. Modify outdoor activity, and monitor district communications and NWS updates closely.`,
+      source: "NWS Red Flag polygons + hourly forecast",
+    };
+  }
   if (maxWindMph >= 35) {
     return {
       level: "modify_outdoor",
@@ -50,23 +68,6 @@ function decideAction(
       level: "modify_outdoor",
       rationale: `Low relative humidity (<20%) forecast tonight indicates elevated fire weather. Monitor district communications and adjust outdoor activity accordingly.`,
       source: "NWS hourly forecast at campus location",
-    };
-  }
-  // A warning near the campus (the same verdict the map shows) must be named, never
-  // replaced by "no warning" text. Only the wording follows the verdict; the level does not.
-  const near = nearest ? `about ${Math.round(nearest.distance_mi)} mi ${nearest.bearing_to_polygon_compass} of this campus` : "near this campus";
-  if (verdictState === "downwind_threat") {
-    return {
-      level: "normal",
-      rationale: `An active Red Flag Warning is ${near}, and tonight's wind is blowing from it toward the campus. Forecast wind and humidity at the campus are below the thresholds for modifying outdoor activity; monitor district communications and NWS updates closely.`,
-      source: "NWS Red Flag polygons + hourly forecast",
-    };
-  }
-  if (verdictState === "adjacent") {
-    return {
-      level: "normal",
-      rationale: `An active Red Flag Warning is ${near}. The campus is not inside it, and forecast wind and humidity at the campus are below the thresholds for modifying outdoor activity; monitor district communications and NWS updates closely.`,
-      source: "NWS Red Flag polygons + hourly forecast",
     };
   }
   // Reached only when no warning is at or near the campus and tonight's forecast is calm,
