@@ -161,6 +161,16 @@ export const ES = {
   "If your area becomes affected, check Genasys Protect for your zone (link below).":
     "Si su zona llega a verse afectada, consulte Genasys Protect para ver su zona (enlace abajo).",
 
+  // ---- out_of_zone, no warning nearby ---------------------------------------
+  "Your address is not in an active RFW Affected Area.":
+    "Su dirección no está en una Zona Afectada por una Advertencia de Bandera Roja activa.",
+  "Important: a quiet night does NOT mean fire-safe. During fire season, keep a go-bag ready and know your evacuation zone.":
+    "Importante: una noche tranquila NO significa que esté a salvo del fuego. Durante la temporada de incendios, mantenga lista una mochila de emergencia y conozca su zona de evacuación.",
+  "Sign up for your county's emergency alerts so you hear about the next warning (link below).":
+    "Regístrese para recibir las alertas de emergencia de su condado y así enterarse de la próxima advertencia (enlace abajo).",
+  "Do not treat a quiet night as the end of fire season. Conditions can change within hours.":
+    "No tome una noche tranquila como el fin de la temporada de incendios. Las condiciones pueden cambiar en cuestión de horas.",
+
   // ---- data_unavailable (fail-safe state) ----------------------------------
   "Live warning data is unreachable. Treat tonight as a possible fire-weather night until you can confirm otherwise.":
     "No se pueden obtener los datos de alerta en vivo. Trate esta noche como una posible noche de peligro de incendio hasta que pueda confirmar lo contrario.",

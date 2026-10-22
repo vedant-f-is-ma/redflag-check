@@ -128,7 +128,8 @@ export default async function handler(req: Request): Promise<Response> {
     ? buildDataUnavailableChecklist()
     : buildActionChecklist(
         checklistCategory === "in_zone",
-        checklistCategory === "adjacent"
+        checklistCategory === "adjacent",
+        verdict.nearest_polygon ? verdict.nearest_polygon.distance_mi : null
       );
 
   return jsonResponse({

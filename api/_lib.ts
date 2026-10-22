@@ -998,7 +998,16 @@ export function buildDataUnavailableChecklist(): ActionChecklist {
   };
 }
 
-export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean): ActionChecklist {
+// nearestDistanceMi: distance to the nearest active warning edge, or null when no warning was
+// found near the address. Only the out_of_zone wording depends on it: the "outside the active
+// RFW Affected Area" lines assume a warning nearby, so with none within the downwind reach
+// they would describe a warning that is not there. Left undefined (unknown), it keeps the
+// cautious nearby wording.
+export function buildActionChecklist(
+  inZone: boolean,
+  isHillsAdjacent: boolean,
+  nearestDistanceMi?: number | null
+): ActionChecklist {
   if (inZone) {
     return {
       category: "in_zone",
@@ -1042,6 +1051,25 @@ export function buildActionChecklist(inZone: boolean, isHillsAdjacent: boolean):
       ],
       if_evacuation_called: [
         "Wind-driven fires move fast. Be ready to leave even if you're adjacent.",
+      ],
+    };
+  }
+  const warningNearby =
+    nearestDistanceMi === undefined ||
+    (nearestDistanceMi !== null && nearestDistanceMi <= DOWNWIND_MAX_DISTANCE_MI);
+  if (!warningNearby) {
+    return {
+      category: "out_of_zone",
+      do_now: [
+        "Your address is not in an active RFW Affected Area.",
+        "Important: a quiet night does NOT mean fire-safe. During fire season, keep a go-bag ready and know your evacuation zone.",
+        "Sign up for your county's emergency alerts so you hear about the next warning (link below).",
+      ],
+      do_not: [
+        "Do not treat a quiet night as the end of fire season. Conditions can change within hours.",
+      ],
+      if_evacuation_called: [
+        "If your area becomes affected, check Genasys Protect for your zone (link below).",
       ],
     };
   }

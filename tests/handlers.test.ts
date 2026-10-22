@@ -43,6 +43,14 @@ describe("zone-check", () => {
     expect(d.location.matched_address).toContain("ALLSTON");
     expect(d.map_views).toBeNull();
   });
+  // No warning anywhere near: the Bottom line (do_now[0]) must not describe an active area.
+  test("no warning near the address: the Bottom line says so", async () => {
+    routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });
+    const d = await (await zoneCheck(req("/api/v1/zone-check?address=1980+Allston"))).json();
+    expect(d.verdict.nearest_polygon).toBeNull();
+    expect(d.action_checklist.do_now[0]).toBe("Your address is not in an active RFW Affected Area.");
+    expect(d.action_checklist.do_now.join(" ")).not.toContain("the active RFW Affected Area");
+  });
   test("safe result still gets a user-centered map (marker, no polygon) when a key is set", async () => {
     process.env.GEOAPIFY_API_KEY = "k";
     routeFetch({ "geocoding.geo.census.gov": CENSUS_MATCH, "alerts/active?point": EMPTY, "alerts/active?area": EMPTY, ...baseForecast });

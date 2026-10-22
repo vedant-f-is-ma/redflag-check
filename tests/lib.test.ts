@@ -341,6 +341,25 @@ describe("buildActionChecklist", () => {
   test("out_of_zone category", () => {
     expect(buildActionChecklist(false, false).category).toBe("out_of_zone");
   });
+  // The out_of_zone lines once said "outside the active RFW Affected Area" and "a
+  // fire-weather night in your area" even when no warning existed anywhere near.
+  const assumesWarning = (c: ReturnType<typeof buildActionChecklist>) =>
+    [...c.do_now, ...c.do_not].some((s) => /the active RFW Affected Area|in your area|in the hills/.test(s));
+  test("out_of_zone with no warning near: wording claims no warning", () => {
+    for (const d of [null, 25.1, 294]) {
+      const c = buildActionChecklist(false, false, d);
+      expect(c.category).toBe("out_of_zone");
+      expect(c.do_now[0]).toBe("Your address is not in an active RFW Affected Area.");
+      expect(assumesWarning(c)).toBe(false);
+    }
+  });
+  test("out_of_zone with a warning within 25 mi, or distance unknown: keeps the nearby wording", () => {
+    for (const d of [6, 25, undefined]) {
+      const c = buildActionChecklist(false, false, d);
+      expect(c.do_now[0]).toBe("Your address is outside the active RFW Affected Area.");
+      expect(assumesWarning(c)).toBe(true);
+    }
+  });
 });
 
 describe("buildStaticMapUrls", () => {
